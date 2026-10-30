@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 560" width="900" height="560" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e53935"/></marker></defs>
+<rect width="900" height="560" rx="14" fill="#ffffff"/>
+<line x1="234.5" y1="73.6" x2="234.5" y2="238.6" stroke="#b0bec5" stroke-width="1" stroke-dasharray="3 4"/>
+<line x1="446.0" y1="97.6" x2="446.0" y2="262.6" stroke="#b0bec5" stroke-width="1" stroke-dasharray="3 4"/>
+<line x1="234.5" y1="238.6" x2="234.5" y2="403.6" stroke="#b0bec5" stroke-width="1" stroke-dasharray="3 4"/>
+<line x1="338.0" y1="233.8" x2="338.0" y2="398.8" stroke="#b0bec5" stroke-width="1" stroke-dasharray="3 4"/>
+<line x1="446.0" y1="262.6" x2="446.0" y2="427.6" stroke="#b0bec5" stroke-width="1" stroke-dasharray="3 4"/>
+<line x1="534.2" y1="274.1" x2="534.2" y2="439.1" stroke="#b0bec5" stroke-width="1" stroke-dasharray="3 4"/>
+<line x1="612.5" y1="243.4" x2="612.5" y2="408.4" stroke="#b0bec5" stroke-width="1" stroke-dasharray="3 4"/>
+<polygon points="230.0,40.0 680.0,40.0 590.0,136.0 140.0,136.0" fill="#e3f2fd" stroke="#90caf9" stroke-width="1.5" opacity="0.92"/>
+<line x1="234.5" y1="73.6" x2="446.0" y2="97.6" stroke="#90a4ae" stroke-width="1.3"/>
+<circle cx="234.5" cy="73.6" r="6" fill="#607d8b" stroke="#fff" stroke-width="1.5"/>
+<circle cx="446.0" cy="97.6" r="6" fill="#607d8b" stroke="#fff" stroke-width="1.5"/>
+<text x="24" y="84" font-size="15" font-weight="600" fill="#263238">Layer 2</text>
+<text x="24" y="102" font-size="11.5" fill="#607d8b">few nodes · long jumps</text>
+<polygon points="230.0,205.0 680.0,205.0 590.0,301.0 140.0,301.0" fill="#e8eaf6" stroke="#9fa8da" stroke-width="1.5" opacity="0.92"/>
+<line x1="234.5" y1="238.6" x2="338.0" y2="233.8" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="338.0" y1="233.8" x2="446.0" y2="262.6" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="446.0" y1="262.6" x2="534.2" y2="274.1" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="534.2" y1="274.1" x2="612.5" y2="243.4" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="338.0" y1="233.8" x2="534.2" y2="274.1" stroke="#90a4ae" stroke-width="1.3"/>
+<circle cx="234.5" cy="238.6" r="6" fill="#607d8b" stroke="#fff" stroke-width="1.5"/>
+<circle cx="338.0" cy="233.8" r="6" fill="#607d8b" stroke="#fff" stroke-width="1.5"/>
+<circle cx="446.0" cy="262.6" r="6" fill="#607d8b" stroke="#fff" stroke-width="1.5"/>
+<circle cx="534.2" cy="274.1" r="6" fill="#607d8b" stroke="#fff" stroke-width="1.5"/>
+<circle cx="612.5" cy="243.4" r="6" fill="#607d8b" stroke="#fff" stroke-width="1.5"/>
+<text x="24" y="249" font-size="15" font-weight="600" fill="#263238">Layer 1</text>
+<text x="24" y="267" font-size="11.5" fill="#607d8b">more nodes</text>
+<polygon points="230.0,370.0 680.0,370.0 590.0,466.0 140.0,466.0" fill="#f3e5f5" stroke="#ce93d8" stroke-width="1.5" opacity="0.92"/>
+<line x1="234.5" y1="403.6" x2="284.0" y2="384.4" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="234.5" y1="403.6" x2="252.5" y2="442.0" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="284.0" y1="384.4" x2="338.0" y2="398.8" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="252.5" y1="442.0" x2="338.0" y2="398.8" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="252.5" y1="442.0" x2="309.2" y2="458.3" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="338.0" y1="398.8" x2="356.0" y2="437.2" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="338.0" y1="398.8" x2="432.5" y2="394.0" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="356.0" y1="437.2" x2="309.2" y2="458.3" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="356.0" y1="437.2" x2="432.5" y2="394.0" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="356.0" y1="437.2" x2="446.0" y2="427.6" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="432.5" y1="394.0" x2="446.0" y2="427.6" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="432.5" y1="394.0" x2="513.5" y2="394.0" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="446.0" y1="427.6" x2="513.5" y2="394.0" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="446.0" y1="427.6" x2="446.0" y2="456.4" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="446.0" y1="427.6" x2="534.2" y2="439.1" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="513.5" y1="394.0" x2="534.2" y2="439.1" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="513.5" y1="394.0" x2="612.5" y2="408.4" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="534.2" y1="439.1" x2="612.5" y2="408.4" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="534.2" y1="439.1" x2="446.0" y2="456.4" stroke="#90a4ae" stroke-width="1.3"/>
+<line x1="309.2" y1="458.3" x2="446.0" y2="456.4" stroke="#90a4ae" stroke-width="1.3"/>
+<circle cx="234.5" cy="403.6" r="6" fill="#607d8b" stroke="#fff" stroke-width="1.5"/>
+<circle cx="252.5" cy="442.0" r="6" fill="#607d8b" stroke="#fff" stroke-width="1.5"/>
+<circle cx="338.0" cy="398.8" r="6" fill="#607d8b" stroke="#fff" stroke-width="1.5"/>
+<circle cx="356.0" cy="437.2" r="6" fill="#607d8b" stroke="#fff" stroke-width="1.5"/>
+<circle cx="432.5" cy="394.0" r="6" fill="#607d8b" stroke="#fff" stroke-width="1.5"/>
+<circle cx="446.0" cy="427.6" r="6" fill="#607d8b" stroke="#fff" stroke-width="1.5"/>
+<circle cx="513.5" cy="394.0" r="6" fill="#607d8b" stroke="#fff" stroke-width="1.5"/>
+<circle cx="534.2" cy="439.1" r="6" fill="#607d8b" stroke="#fff" stroke-width="1.5"/>
+<circle cx="612.5" cy="408.4" r="6" fill="#607d8b" stroke="#fff" stroke-width="1.5"/>
+<circle cx="284.0" cy="384.4" r="6" fill="#607d8b" stroke="#fff" stroke-width="1.5"/>
+<circle cx="309.2" cy="458.3" r="6" fill="#607d8b" stroke="#fff" stroke-width="1.5"/>
+<circle cx="446.0" cy="456.4" r="6" fill="#607d8b" stroke="#fff" stroke-width="1.5"/>
+<text x="24" y="414" font-size="15" font-weight="600" fill="#263238">Layer 0</text>
+<text x="24" y="432" font-size="11.5" fill="#607d8b">every chunk · short links</text>
+<line x1="243.4" y1="74.6" x2="437.1" y2="96.6" stroke="#e53935" stroke-width="3" marker-end="url(#arr)" stroke-linecap="round"/>
+<line x1="446.0" y1="106.6" x2="446.0" y2="253.6" stroke="#e53935" stroke-width="3" marker-end="url(#arr)" stroke-linecap="round"/>
+<line x1="454.9" y1="263.8" x2="525.3" y2="273.0" stroke="#e53935" stroke-width="3" marker-end="url(#arr)" stroke-linecap="round"/>
+<line x1="534.2" y1="283.1" x2="534.2" y2="430.1" stroke="#e53935" stroke-width="3" marker-end="url(#arr)" stroke-linecap="round"/>
+<line x1="530.4" y1="430.9" x2="517.3" y2="402.2" stroke="#e53935" stroke-width="3" marker-end="url(#arr)" stroke-linecap="round"/>
+<line x1="522.4" y1="395.3" x2="603.6" y2="407.1" stroke="#e53935" stroke-width="3" marker-end="url(#arr)" stroke-linecap="round"/>
+<circle cx="234.5" cy="73.6" r="7" fill="#e53935" stroke="#fff" stroke-width="2"/>
+<circle cx="446.0" cy="97.6" r="7" fill="#e53935" stroke="#fff" stroke-width="2"/>
+<circle cx="446.0" cy="262.6" r="7" fill="#e53935" stroke="#fff" stroke-width="2"/>
+<circle cx="534.2" cy="274.1" r="7" fill="#e53935" stroke="#fff" stroke-width="2"/>
+<circle cx="534.2" cy="439.1" r="7" fill="#e53935" stroke="#fff" stroke-width="2"/>
+<circle cx="513.5" cy="394.0" r="7" fill="#e53935" stroke="#fff" stroke-width="2"/>
+<circle cx="612.5" cy="408.4" r="7" fill="#e53935" stroke="#fff" stroke-width="2"/>
+<polygon points="608.0,368.6 610.9,375.6 618.5,376.2 612.8,381.1 614.5,388.5 608.0,384.6 601.5,388.5 603.2,381.1 597.5,376.2 605.1,375.6" fill="#fbc02d" stroke="#f57f17" stroke-width="1.2"/>
+<text x="622" y="384" font-size="11.5" fill="#263238">query</text>
+<text x="234" y="60" font-size="12" font-weight="600" fill="#e53935" text-anchor="middle">entry point</text>
+<text x="710" y="84" font-size="13" fill="#263238">① Greedy hop to the closest</text>
+<text x="710" y="102" font-size="13" fill="#263238">neighbor, beam width 1</text>
+<text x="710" y="249" font-size="13" fill="#263238">② Drop a layer at the same</text>
+<text x="710" y="267" font-size="13" fill="#263238">node, keep hopping</text>
+<text x="710" y="414" font-size="13" fill="#263238">③ Beam search with ef = 50</text>
+<text x="710" y="432" font-size="13" fill="#263238">around the query → top-k</text>
+<circle cx="40" cy="512" r="6" fill="#607d8b"/><text x="54" y="516" font-size="12" fill="#263238">chunk vector</text>
+<line x1="150" y1="512" x2="185" y2="512" stroke="#e53935" stroke-width="3" marker-end="url(#arr)"/><text x="194" y="516" font-size="12" fill="#263238">search path</text>
+<polygon points="300.0,503.0 302.4,508.8 308.6,509.2 303.8,513.2 305.3,519.3 300.0,516.0 294.7,519.3 296.2,513.2 291.4,509.2 297.6,508.8" fill="#fbc02d" stroke="#f57f17"/><text x="314" y="516" font-size="12" fill="#263238">question embedding</text>
+<line x1="455" y1="512" x2="485" y2="512" stroke="#b0bec5" stroke-dasharray="3 4"/><text x="494" y="516" font-size="12" fill="#263238">same node, one layer down</text>
+<text x="40" y="542" font-size="11.5" fill="#607d8b">A node reaches layer L with probability 0.5^L, so upper layers are sparse and their links cross the whole index.</text>
+</svg>
