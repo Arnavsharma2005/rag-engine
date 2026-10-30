@@ -89,6 +89,19 @@ Click **Compare** and the page shows:
 
 Ask questions only your document can answer (names, numbers, definitions) to see the difference most clearly.
 
+## Advanced RAG
+
+A third column, **Advanced RAG**, runs a fuller pipeline. Each step has a switch, so you can see what it adds:
+
+| Step | What it does | Why it helps |
+|---|---|---|
+| Query rewriting | llama3.2 turns the question into a search query with key terms and synonyms | Conversational questions ("what did they decide?") embed poorly |
+| Hybrid search | BM25 keyword search runs next to HNSW; results are merged with reciprocal rank fusion | Embeddings blur exact terms like names, codes and numbers; keywords catch them |
+| Reranking | llama3.2 reorders the top 15 candidates by usefulness and keeps 5 | Similar text isn't always useful text; the LLM can judge which passage answers the question |
+
+The pipeline panel shows the rewritten query, the HNSW, BM25 and fused rankings, which final chunks differ
+from basic RAG, and how long each step took. Rewriting and reranking each add one LLM call, so they cost a few seconds.
+
 ---
 
 ## Setup
@@ -142,7 +155,8 @@ rag-engine/
 │   ├── index.bin         # HNSW graph + vectors (generated)
 │   └── chunks.json       # chunk text and page numbers (generated)
 ├── backend/
-│   ├── app.py            # Flask API
+│   ├── app.py            # Flask API + advanced pipeline (rewrite, rerank)
+│   ├── retrieval.py      # BM25 keyword search and rank fusion
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/
