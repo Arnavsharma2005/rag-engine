@@ -119,9 +119,16 @@ public:
                 int nb = candidates[i].second;
                 nodes[id].neighbors[l].push_back(nb);
                 nodes[nb].neighbors[l].push_back(id); // bidirectional
-                // Trim neighbors if over M
-                if ((int)nodes[nb].neighbors[l].size() > M) {
-                    nodes[nb].neighbors[l].resize(M);
+                // Trim neighbors if over M, keeping the M closest to nb
+                // (cutting the tail would always drop the link to id just added)
+                auto& nbList = nodes[nb].neighbors[l];
+                if ((int)nbList.size() > M) {
+                    const vector<float>& base = nodes[nb].vec;
+                    vector<pair<float,int>> scored;
+                    for (int x : nbList) scored.push_back({cosine_distance(base, nodes[x].vec), x});
+                    sort(scored.begin(), scored.end());
+                    nbList.clear();
+                    for (int i = 0; i < M; i++) nbList.push_back(scored[i].second);
                 }
             }
             if (!candidates.empty()) curr = candidates[0].second;
