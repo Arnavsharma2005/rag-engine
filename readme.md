@@ -1,6 +1,7 @@
 # Local Document Q&A Engine
 
 > Ask questions about any PDF — fully local, zero data leaves your machine.
+> Every question is answered twice, with and without RAG, so you can see what retrieval adds.
 
 Built with a custom HNSW vector index in C++, Ollama for local LLM inference, Flask REST API, and a React frontend.
 
@@ -8,6 +9,7 @@ Built with a custom HNSW vector index in C++, Ollama for local LLM inference, Fl
 
 ## Architecture
 
+```
 PDF Upload
 │
 ▼
@@ -34,6 +36,7 @@ LLM (Ollama: llama3.2) → Streamed Answer
 │
 ▼
 React Frontend (real-time typewriter stream)
+```
 
 ---
 
@@ -46,7 +49,6 @@ React Frontend (real-time typewriter stream)
 | LLM | llama3.2 via Ollama (fully local) |
 | Backend | Python, Flask, PyMuPDF |
 | Frontend | React, Vite |
-| Deployment | Vercel (frontend), Render (backend) |
 
 ---
 
@@ -71,9 +73,21 @@ This gives **O(log N) search time**. I implemented it from scratch in C++ includ
 2. Each chunk is embedded into a 768D vector using `nomic-embed-text`
 3. Vectors are inserted into the HNSW index
 4. At query time, the question is embedded and HNSW finds the 5 closest chunks
-5. Those chunks become context for `llama3.2` which streams the answer
+5. Those chunks become numbered sources for `llama3.2`, which streams an answer citing them
+6. In parallel, the same model answers the same question with no document, as the baseline
 
 The model never sees the full document — only the most relevant chunks. This keeps answers accurate and fast.
+
+## RAG vs no RAG
+
+Click **Compare** and the page shows:
+
+- **Without RAG**: llama3.2 on its own. For anything specific to your PDF it will guess or refuse.
+- **With RAG**: llama3.2 given the top 5 chunks, citing them as [1], [2]...
+- **Retrieval**: the chunks used, with page numbers and similarity, plus HNSW vs brute-force search time,
+  how many vectors each compared, and how many of HNSW's results match the exact top 5.
+
+Ask questions only your document can answer (names, numbers, definitions) to see the difference most clearly.
 
 ---
 
@@ -91,7 +105,7 @@ ollama pull nomic-embed-text
 ollama pull llama3.2
 ```
 
-### 2. Compile the HNSW engine
+### 2. Compile the HNSW engine (output must sit in `hnsw/`)
 ```bash
 cd hnsw
 g++ -O2 -o hnsw.exe hnsw.cpp   # Windows
@@ -105,6 +119,9 @@ pip install -r requirements.txt
 python app.py
 ```
 
+Optional environment variables: `OLLAMA_URL`, `EMBED_MODEL`, `LLM_MODEL`, `HNSW_EXE`, `FLASK_DEBUG=1`.
+The frontend reads `VITE_API_URL` (default `http://127.0.0.1:5000`).
+
 ### 4. Frontend
 ```bash
 cd frontend
@@ -117,10 +134,13 @@ Open `http://localhost:5173`, upload a PDF, start asking questions.
 ---
 
 ## Project Structure
+```
 rag-engine/
 ├── hnsw/
 │   ├── hnsw.cpp          # HNSW vector index (C++, from scratch)
-│   └── hnsw.exe          # compiled binary (not committed)
+│   ├── hnsw.exe          # compiled binary (not committed)
+│   ├── index.bin         # HNSW graph + vectors (generated)
+│   └── chunks.json       # chunk text and page numbers (generated)
 ├── backend/
 │   ├── app.py            # Flask API
 │   └── requirements.txt
@@ -131,6 +151,7 @@ rag-engine/
 │   └── package.json
 ├── .gitignore
 └── README.md
+```
 
 ---
 
