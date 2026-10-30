@@ -7,6 +7,7 @@ import requests
 import fitz  # PyMuPDF
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
+from retrieval import bm25_search, rrf_fuse
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB uploads
@@ -24,6 +25,7 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 LLM_MODEL = os.environ.get("LLM_MODEL", "llama3.2")
 TOP_K = 5
+CANDIDATES = 15  # how many chunks the advanced pipeline gathers before reranking
 
 # One index on disk, so uploads and searches must not overlap
 index_lock = threading.Lock()
@@ -139,6 +141,96 @@ def stream_llm(prompt: str):
                 yield data["response"]
 
 
+def llm_complete(prompt: str, as_json=False) -> str:
+    """One non-streaming LLM call, for pipeline steps like rewriting and reranking."""
+    body = {"model": LLM_MODEL, "prompt": prompt, "stream": False,
+            "options": {"temperature": 0}}
+    if as_json:
+        body["format"] = "json"
+    try:
+        r = requests.post(f"{OLLAMA_URL}/api/generate", json=body, timeout=300)
+    except requests.RequestException as e:
+        raise BackendError(f"Can't reach Ollama at {OLLAMA_URL}: {e}")
+    data = r.json()
+    if "error" in data:
+        raise BackendError(f"LLM call failed: {data['error']}")
+    return data.get("response", "").strip()
+
+
+def rewrite_query(question: str) -> str:
+    """Turn a conversational question into a keyword-rich search query."""
+    out = llm_complete(f"""Rewrite the question below as a short search query for finding the
+relevant passage in a document. Keep names, numbers and technical terms exactly.
+Add likely synonyms. Reply with the query only, on one line.
+
+Question: {question}
+Query:""")
+    line = out.splitlines()[0].strip().strip('"') if out else ""
+    return line or question
+
+
+def rerank(question: str, chunks: list[dict], ids: list[int], k: int) -> list[int]:
+    """Ask the LLM which candidates actually answer the question. Embedding
+    similarity finds related text; the LLM can judge whether it is useful."""
+    listing = "\n\n".join(f"[{i}] {' '.join(chunks[i]['text'].split()[:120])}" for i in ids)
+    out = llm_complete(f"""Below are numbered passages from a document and a question.
+Rank the passages by how useful they are for answering the question, most useful first.
+Reply as JSON: {{"ranking": [passage numbers]}}
+
+Passages:
+{listing}
+
+Question: {question}""", as_json=True)
+    try:
+        ranking = json.loads(out).get("ranking", [])
+    except (json.JSONDecodeError, AttributeError):
+        ranking = []
+    # Keep only valid candidate ids, then fill with the original order if the LLM skipped some
+    picked = []
+    for i in ranking:
+        if isinstance(i, int) and i in ids and i not in picked:
+            picked.append(i)
+    picked += [i for i in ids if i not in picked]
+    return picked[:k]
+
+
+def advanced_retrieve(question: str, q_vec: list[float], chunks: list[dict],
+                      use_rewrite: bool, use_hybrid: bool, use_rerank: bool, k: int) -> dict:
+    """Run the advanced pipeline and record every stage so the UI can show what each one changed."""
+    timings = {}
+    query = question
+    if use_rewrite:
+        t = time.perf_counter()
+        query = rewrite_query(question)
+        q_vec = embed([query], "query")[0]
+        timings["rewrite_ms"] = round((time.perf_counter() - t) * 1000)
+
+    pool = CANDIDATES if (use_rerank or use_hybrid) else k
+    t = time.perf_counter()
+    with index_lock:
+        vector = hnsw_query("search", q_vec, pool)["hits"]
+    keyword = bm25_search(chunks, query, pool) if use_hybrid else None
+    if use_hybrid:
+        fused = rrf_fuse([[h["id"] for h in vector], [h["id"] for h in keyword]], pool)
+    else:
+        fused = [{"id": h["id"], "score": 1 - h["distance"]} for h in vector]
+    timings["search_ms"] = round((time.perf_counter() - t) * 1000, 1)
+
+    ids = [h["id"] for h in fused]
+    reranked = None
+    if use_rerank:
+        t = time.perf_counter()
+        reranked = rerank(question, chunks, ids, k)
+        timings["rerank_ms"] = round((time.perf_counter() - t) * 1000)
+        final = reranked
+    else:
+        final = ids[:k]
+
+    return {"query": query, "vector": vector, "keyword": keyword,
+            "fused": fused if use_hybrid else None, "reranked": reranked,
+            "final": final, "timings": timings}
+
+
 @app.errorhandler(BackendError)
 def backend_error(e):
     return jsonify({"error": str(e)}), 500
@@ -196,7 +288,8 @@ def status():
 @app.route("/retrieve", methods=["POST"])
 def retrieve():
     """Find the chunks closest to the question with HNSW and with brute force,
-    so the UI can show what was retrieved and what HNSW saved."""
+    so the UI can show what was retrieved and what HNSW saved. If "advanced"
+    is given ({rewrite, hybrid, rerank} flags), also run the advanced pipeline."""
     data = request.get_json(silent=True) or {}
     question = data.get("question", "").strip()
     k = int(data.get("k", TOP_K))
@@ -223,12 +316,26 @@ def retrieve():
     exact_ids = {h["id"] for h in exact["hits"]}
     found = sum(1 for h in hnsw["hits"] if h["id"] in exact_ids)
 
-    return jsonify({
+    result = {
         "embed_ms": round(embed_ms, 1),
         "hnsw": {**hnsw, "hits": describe(hnsw["hits"])},
         "exact": {**exact, "hits": describe(exact["hits"])},
         "recall": found / len(exact_ids) if exact_ids else 1.0,
-    })
+    }
+
+    flags = data.get("advanced")
+    if flags:
+        adv = advanced_retrieve(question, q_vec, chunks, bool(flags.get("rewrite")),
+                                bool(flags.get("hybrid")), bool(flags.get("rerank")), k)
+        for stage in ("vector", "keyword", "fused"):
+            for h in adv[stage] or []:
+                h["pages"] = page_label(chunks[h["id"]])
+        basic_ids = {h["id"] for h in hnsw["hits"]}
+        adv["final"] = [{"id": i, "text": chunks[i]["text"], "pages": page_label(chunks[i]),
+                         "new": i not in basic_ids} for i in adv["final"]]
+        result["advanced"] = adv
+
+    return jsonify(result)
 
 
 @app.route("/ask", methods=["POST"])
