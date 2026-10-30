@@ -17,3 +17,6 @@ hnsw/index.bin
 # OS
 .DS_Store
 Thumbs.db=
+# Chunk text and metadata for the current index
+hnsw/chunks.json
+hnsw/hnsw
