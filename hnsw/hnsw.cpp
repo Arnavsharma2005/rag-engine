@@ -38,8 +38,10 @@ public:
     mt19937 rng;
     vector<Node> nodes;
 
+    // Seeded per run: the CLI starts a new process for every insert, so a
+    // fixed seed would give every node the same layer and no hierarchy
     HNSW(int M = 16, int ef = 50)
-        : M(M), ef(ef), maxLayer(0), entryPoint(-1), rng(42) {}
+        : M(M), ef(ef), maxLayer(0), entryPoint(-1), rng(random_device{}()) {}
 
     // Randomly assign a layer to a new node (higher layers are rarer)
     int randomLayer() {
