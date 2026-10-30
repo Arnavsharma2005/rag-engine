@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1220 600" width="1220" height="600" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#455a64"/></marker>
+<filter id="sh" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-opacity="0.12"/></filter>
+</defs>
+<rect width="1220" height="600" rx="14" fill="#ffffff"/>
+<rect x="65" y="40" width="120" height="34" rx="17" fill="#ede7f6" stroke="#7e57c2" stroke-width="1.5"/>
+<text x="125" y="62" font-size="13.5" font-weight="700" fill="#263238" text-anchor="middle">You</text>
+<rect x="30" y="110" width="190" height="230" rx="12" fill="#f1f8e9" stroke="#43a047" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="44" y="132" font-size="13" font-weight="700" fill="#43a047">Browser</text>
+<text x="206" y="132" font-size="11.5" fill="#607d8b" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">:5173</text>
+<rect x="45" y="150" width="160" height="170" rx="9" fill="#ffffff" stroke="#43a047" stroke-width="1.5" filter="url(#sh)"/>
+<text x="125.0" y="174" font-size="14" font-weight="700" fill="#263238" text-anchor="middle">React UI</text>
+<text x="125.0" y="194" font-size="12" fill="#607d8b" text-anchor="middle">App.jsx</text>
+<text x="125.0" y="211" font-size="12" fill="#607d8b" text-anchor="middle"></text>
+<text x="125.0" y="228" font-size="12" fill="#607d8b" text-anchor="middle">upload a PDF</text>
+<text x="125.0" y="245" font-size="12" fill="#607d8b" text-anchor="middle">compare 3 answers</text>
+<text x="125.0" y="262" font-size="12" fill="#607d8b" text-anchor="middle">pipeline panel</text>
+<text x="125.0" y="279" font-size="12" fill="#607d8b" text-anchor="middle">HNSW vs brute force</text>
+<rect x="350" y="40" width="300" height="470" rx="12" fill="#e3f2fd" stroke="#1e88e5" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="364" y="62" font-size="13" font-weight="700" fill="#1e88e5">Flask API</text>
+<text x="636" y="62" font-size="11.5" fill="#607d8b" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">:5000</text>
+<rect x="370" y="75" width="260" height="110" rx="9" fill="#ffffff" stroke="#1e88e5" stroke-width="1.5" filter="url(#sh)"/>
+<text x="500.0" y="99" font-size="14" font-weight="700" fill="#263238" text-anchor="middle">Routes</text>
+<text x="500.0" y="119" font-size="12" fill="#607d8b" text-anchor="middle">/upload · /status</text>
+<text x="500.0" y="136" font-size="12" fill="#607d8b" text-anchor="middle">/retrieve · /ask</text>
+<text x="500.0" y="153" font-size="12" fill="#607d8b" text-anchor="middle">streams answers as text</text>
+<rect x="370" y="205" width="260" height="120" rx="9" fill="#ffffff" stroke="#1e88e5" stroke-width="1.5" filter="url(#sh)"/>
+<text x="500.0" y="229" font-size="14" font-weight="700" fill="#263238" text-anchor="middle">Ingest</text>
+<text x="500.0" y="249" font-size="12" fill="#607d8b" text-anchor="middle">PyMuPDF: words per page</text>
+<text x="500.0" y="266" font-size="12" fill="#607d8b" text-anchor="middle">chunk 300 words, 50 overlap</text>
+<text x="500.0" y="283" font-size="12" fill="#607d8b" text-anchor="middle">tag page ranges</text>
+<text x="500.0" y="300" font-size="12" fill="#607d8b" text-anchor="middle">embed in batches of 32</text>
+<rect x="370" y="345" width="260" height="145" rx="9" fill="#ffffff" stroke="#1e88e5" stroke-width="1.5" filter="url(#sh)"/>
+<text x="500.0" y="369" font-size="14" font-weight="700" fill="#263238" text-anchor="middle">Advanced pipeline</text>
+<text x="500.0" y="389" font-size="12" fill="#607d8b" text-anchor="middle">query rewriting (LLM)</text>
+<text x="500.0" y="406" font-size="12" fill="#607d8b" text-anchor="middle">BM25 keyword search</text>
+<text x="500.0" y="423" font-size="12" fill="#607d8b" text-anchor="middle">reciprocal rank fusion</text>
+<text x="500.0" y="440" font-size="12" fill="#607d8b" text-anchor="middle">LLM reranking</text>
+<text x="500.0" y="457" font-size="12" fill="#607d8b" text-anchor="middle">retrieval.py + app.py</text>
+<rect x="800" y="40" width="210" height="170" rx="12" fill="#e0f2f1" stroke="#00897b" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="814" y="62" font-size="13" font-weight="700" fill="#00897b">HNSW engine</text>
+<text x="996" y="62" font-size="11.5" fill="#607d8b" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">C++</text>
+<rect x="815" y="75" width="180" height="120" rx="9" fill="#ffffff" stroke="#00897b" stroke-width="1.5" filter="url(#sh)"/>
+<text x="905.0" y="99" font-size="14" font-weight="700" fill="#263238" text-anchor="middle">hnsw CLI</text>
+<text x="905.0" y="119" font-size="12" fill="#607d8b" text-anchor="middle">build · search</text>
+<text x="905.0" y="136" font-size="12" fill="#607d8b" text-anchor="middle">exact · reset</text>
+<text x="905.0" y="153" font-size="12" fill="#607d8b" text-anchor="middle">prints time + distance</text>
+<text x="905.0" y="170" font-size="12" fill="#607d8b" text-anchor="middle">computations</text>
+<rect x="800" y="250" width="210" height="260" rx="12" fill="#f3e5f5" stroke="#7e57c2" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="814" y="272" font-size="13" font-weight="700" fill="#7e57c2">Ollama</text>
+<text x="996" y="272" font-size="11.5" fill="#607d8b" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">:11434</text>
+<rect x="815" y="285" width="180" height="90" rx="9" fill="#ffffff" stroke="#7e57c2" stroke-width="1.5" filter="url(#sh)"/>
+<text x="905.0" y="309" font-size="14" font-weight="700" fill="#263238" text-anchor="middle">nomic-embed-text</text>
+<text x="905.0" y="329" font-size="12" fill="#607d8b" text-anchor="middle">768-D vectors</text>
+<text x="905.0" y="346" font-size="12" fill="#607d8b" text-anchor="middle">search_document: / query:</text>
+<rect x="815" y="395" width="180" height="100" rx="9" fill="#ffffff" stroke="#7e57c2" stroke-width="1.5" filter="url(#sh)"/>
+<text x="905.0" y="419" font-size="14" font-weight="700" fill="#263238" text-anchor="middle">llama3.2</text>
+<text x="905.0" y="439" font-size="12" fill="#607d8b" text-anchor="middle">answers (streamed)</text>
+<text x="905.0" y="456" font-size="12" fill="#607d8b" text-anchor="middle">query rewriting</text>
+<text x="905.0" y="473" font-size="12" fill="#607d8b" text-anchor="middle">reranking</text>
+<rect x="1040" y="40" width="165" height="470" rx="12" fill="#fff8e1" stroke="#fb8c00" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="1054" y="62" font-size="13" font-weight="700" fill="#fb8c00">Disk</text>
+<text x="1191" y="62" font-size="11.5" fill="#607d8b" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">hnsw/</text>
+<path d="M1055,90 a67.5,10 0 0,1 135,0 v90 a67.5,10 0 0,1 -135,0 z" fill="#fff3e0" stroke="#fb8c00" stroke-width="1.5" filter="url(#sh)"/>
+<path d="M1055,90 a67.5,10 0 0,0 135,0" fill="none" stroke="#fb8c00" stroke-width="1.5"/>
+<text x="1122.5" y="116" font-size="14" font-weight="700" fill="#263238" text-anchor="middle">index.bin</text>
+<text x="1122.5" y="135" font-size="12" fill="#607d8b" text-anchor="middle">graph + vectors</text>
+<text x="1122.5" y="151" font-size="12" fill="#607d8b" text-anchor="middle">binary</text>
+<path d="M1055,340 a67.5,10 0 0,1 135,0 v90 a67.5,10 0 0,1 -135,0 z" fill="#fff3e0" stroke="#fb8c00" stroke-width="1.5" filter="url(#sh)"/>
+<path d="M1055,340 a67.5,10 0 0,0 135,0" fill="none" stroke="#fb8c00" stroke-width="1.5"/>
+<text x="1122.5" y="366" font-size="14" font-weight="700" fill="#263238" text-anchor="middle">chunks.json</text>
+<text x="1122.5" y="385" font-size="12" fill="#607d8b" text-anchor="middle">chunk text</text>
+<text x="1122.5" y="401" font-size="12" fill="#607d8b" text-anchor="middle">page ranges</text>
+<path d="M125,74 L125,150" fill="none" stroke="#455a64" stroke-width="1.6" marker-end="url(#a)"/>
+<path d="M205,235 L370,130" fill="none" stroke="#455a64" stroke-width="1.6" marker-end="url(#a)" marker-start="url(#a)"/>
+<text x="285" y="168" font-size="11.5" fill="#263238" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">HTTP JSON</text>
+<text x="285" y="183" font-size="11.5" fill="#263238" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">streamed text</text>
+<path d="M630,110 L815,110" fill="none" stroke="#455a64" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="725" y="100" font-size="11.5" fill="#263238" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">stdin: ids + vectors</text>
+<path d="M815,165 L630,165" fill="none" stroke="#455a64" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="725" y="183" font-size="11.5" fill="#263238" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">stdout: ranked ids</text>
+<path d="M630,265 L722,265 L722,330 L815,330" fill="none" stroke="#455a64" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="722" y="255" font-size="11.5" fill="#263238" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">/api/embed</text>
+<path d="M630,430 L815,445" fill="none" stroke="#455a64" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="722" y="425" font-size="11.5" fill="#263238" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">/api/generate</text>
+<path d="M995,135 L1055,135" fill="none" stroke="#455a64" stroke-width="1.6" marker-end="url(#a)" marker-start="url(#a)"/>
+<path d="M500,510 L500,540 L1122,540 L1122,452" fill="none" stroke="#455a64" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="811" y="560" font-size="11.5" fill="#263238" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">read / write chunk text + page ranges</text>
+<text x="30" y="588" font-size="11.5" fill="#607d8b">All four processes run locally. The HNSW index stores only chunk ids; text and page numbers stay in chunks.json.</text>
+</svg>
