@@ -8,11 +8,17 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <chrono>
 
 using namespace std;
 
+// Number of distance computations, reported by search/exact to show HNSW's savings
+long long distance_calls = 0;
+
 // Cosine distance between two vectors
 float cosine_distance(const vector<float>& a, const vector<float>& b) {
+    distance_calls++;
+    if (a.size() != b.size()) return 1.0f;
     float dot = 0, na = 0, nb = 0;
     for (int i = 0; i < (int)a.size(); i++) {
         dot += a[i] * b[i];
@@ -154,6 +160,19 @@ public:
         return out;
     }
 
+    // Exact top-k by scanning every node, used as ground truth for comparison
+    vector<pair<float,string>> exact(const vector<float>& query, int k = 5) {
+        vector<pair<float,int>> all;
+        for (int i = 0; i < (int)nodes.size(); i++)
+            all.push_back({cosine_distance(query, nodes[i].vec), i});
+        int take = min(k, (int)all.size());
+        partial_sort(all.begin(), all.begin() + take, all.end());
+        vector<pair<float,string>> out;
+        for (int i = 0; i < take; i++)
+            out.push_back({all[i].first, nodes[all[i].second].text});
+        return out;
+    }
+
     // Save index to file
     void save(const string& path) {
         ofstream f(path, ios::binary);
@@ -204,7 +223,26 @@ public:
     }
 };
 
+// Parse comma-separated floats; false on bad input
+bool parse_vec(const string& str, vector<float>& vec) {
+    stringstream ss(str);
+    string val;
+    try {
+        while (getline(ss, val, ',')) vec.push_back(stof(val));
+    } catch (...) {
+        return false;
+    }
+    return !vec.empty();
+}
+
 // CLI interface — Python calls this as a subprocess
+//   insert <text> <vec>       add one vector
+//   build                     add many vectors from stdin, one "text\tvec" per line
+//   search <vec> [k]          HNSW top-k
+//   exact <vec> [k]           brute-force top-k
+//   reset                     empty the index
+// search/exact print "#\t<microseconds>\t<distance computations>\t<index size>" first,
+// then one "distance\ttext" line per result
 int main(int argc, char* argv[]) {
     if (argc < 2) return 1;
     string cmd = argv[1];
@@ -213,22 +251,41 @@ int main(int argc, char* argv[]) {
 
     if (cmd == "insert" && argc == 4) {
         // argv[2] = text, argv[3] = comma-separated floats
-        string text = argv[2];
-        stringstream ss(argv[3]);
         vector<float> vec;
-        string val;
-        while (getline(ss, val, ',')) vec.push_back(stof(val));
-        hnsw.insert(vec, text);
+        if (!parse_vec(argv[3], vec)) { cerr << "bad vector" << endl; return 2; }
+        hnsw.insert(vec, argv[2]);
         hnsw.save("index.bin");
         cout << "ok" << endl;
 
-    } else if (cmd == "search" && argc == 3) {
-        // argv[2] = comma-separated floats
-        stringstream ss(argv[2]);
+    } else if (cmd == "build") {
+        // One process for the whole document instead of one per chunk
+        string line;
+        int added = 0;
+        while (getline(cin, line)) {
+            size_t tab = line.find('\t');
+            if (tab == string::npos) continue;
+            vector<float> vec;
+            if (!parse_vec(line.substr(tab + 1), vec)) { cerr << "bad vector" << endl; return 2; }
+            hnsw.insert(vec, line.substr(0, tab));
+            added++;
+        }
+        hnsw.save("index.bin");
+        cout << "ok\t" << added << endl;
+
+    } else if ((cmd == "search" || cmd == "exact") && (argc == 3 || argc == 4)) {
+        // argv[2] = comma-separated floats, argv[3] = k
         vector<float> vec;
-        string val;
-        while (getline(ss, val, ',')) vec.push_back(stof(val));
-        auto results = hnsw.search(vec, 5);
+        if (!parse_vec(argv[2], vec)) { cerr << "bad vector" << endl; return 2; }
+        int k = argc == 4 ? atoi(argv[3]) : 5;
+        if (k < 1) k = 5;
+
+        distance_calls = 0;
+        auto t0 = chrono::steady_clock::now();
+        auto results = cmd == "search" ? hnsw.search(vec, k) : hnsw.exact(vec, k);
+        auto t1 = chrono::steady_clock::now();
+
+        cout << "#\t" << chrono::duration<double, micro>(t1 - t0).count()
+             << "\t" << distance_calls << "\t" << hnsw.nodes.size() << "\n";
         for (auto& [dist, text] : results) {
             cout << dist << "\t" << text << "\n";
         }
@@ -237,6 +294,10 @@ int main(int argc, char* argv[]) {
         hnsw = HNSW();
         hnsw.save("index.bin");
         cout << "ok" << endl;
+
+    } else {
+        cerr << "unknown command" << endl;
+        return 1;
     }
 
     return 0;
