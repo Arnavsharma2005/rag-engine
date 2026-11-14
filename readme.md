@@ -12,6 +12,7 @@ Built with a custom HNSW vector index in C++, Ollama for local LLM inference, Fl
 - [What it does](#how-rag-works-here)
 - [Architecture](#architecture)
 - [Data flow](#data-flow): [indexing](#1-indexing-a-pdf), [asking](#2-asking-a-question-compare), [advanced pipeline](#3-advanced-retrieval-pipeline)
+- [Evaluation](#evaluation): measure what each step is worth
 - [How HNSW search works](#how-hnsw-search-works)
 - [Data model](#data-model) and [API](#api)
 - [Setup](#setup)
@@ -180,6 +181,64 @@ flowchart TD
 
 ---
 
+## Evaluation
+
+The **Evaluate** tab (or `backend/evaluate.py` from a terminal) measures what each part of the pipeline is worth
+on your PDF, instead of judging from a handful of questions.
+
+```mermaid
+flowchart LR
+    pdf[/"Indexed PDF"/] --> s["Sample chunks<br/>across the document"]
+    s --> g["llama3.2 writes question,<br/>reference answer,<br/>verbatim evidence"]
+    g --> v{"Checks: evidence in chunk,<br/>no 'the passage', no duplicates"}
+    v --> ts[("Test set<br/>gold = every chunk<br/>holding the evidence")]
+    ts --> run["Every question × every configuration"]
+    run --> r["Retrieval<br/>Hit@k, MRR, nDCG"]
+    run --> a["Answers<br/>LLM judge + token F1"]
+    run --> l["Latency<br/>per stage"]
+    r & a & l --> st["Bootstrap CIs, paired deltas vs basic,<br/>main effect of each step"]
+```
+
+**Configurations.** No RAG, basic RAG (HNSW top 5), exact brute-force search (shows what HNSW's approximation
+costs), and all 7 on/off combinations of rewriting, hybrid search and reranking. Because the full 2×2×2 grid runs,
+the effect of each step is measured with the other steps both on and off.
+
+| Group | Metric | Meaning |
+|---|---|---|
+| Retrieval | Hit@1, Hit@3, Hit@5 | A chunk containing the evidence is in the top k |
+| | Recall@5 | Share of the evidence chunks retrieved (overlapping chunks can both hold it) |
+| | MRR@5, nDCG@5 | How high the first evidence chunk ranks |
+| | Hit@15 (candidates) | Evidence was in the pool the reranker chose from: the ceiling for reranking |
+| Answers | Correctness, relevance | LLM judge compares the answer with the reference answer (1–5, shown as 0–1) |
+| | Faithfulness | LLM judge checks every claim against the sources the model was given |
+| | Token F1, refusal rate, citations | Cheap checks that need no judge |
+| Latency | p50, p95, per stage | embed, rewrite, search, rerank, generate |
+
+**Statistics.** Every mean has a 95% bootstrap interval. Differences from basic RAG are paired over the same
+questions, with a bootstrap p-value. "What each step adds" averages, per question, the change across every pair of
+configurations that differ only in that step.
+
+**Cost.** A full run with the judge makes about 30 LLM calls per question. Temperature 0 calls are cached, so
+configurations that retrieve the same chunks share one answer; cached results report the latency of the original
+call. Expect tens of minutes for 25 questions on a laptop. Untick the judge or pick fewer configurations for a
+quick pass.
+
+**Caveats.** The questions are written by the same model from the document's own wording, which favours keyword
+search, and a model grading its own answers is lenient. Review the generated questions (you can delete bad ones),
+and set `JUDGE_MODEL` to a larger model (for example `llama3.1:8b`) for stricter grading.
+
+```bash
+cd backend
+python evaluate.py generate --n 40              # test set from the indexed PDF
+python evaluate.py run --out report.md          # everything, with the judge
+python evaluate.py run --configs basic hybrid advanced --no-judge --limit 10
+```
+
+Test sets and runs are saved in `hnsw/eval/` and appear in the Evaluate tab. Each run can be downloaded as JSON or
+as a Markdown report.
+
+---
+
 ## How HNSW search works
 
 HNSW (Hierarchical Navigable Small World) is the vector search algorithm behind Pinecone, Weaviate and Qdrant.
@@ -249,6 +308,13 @@ classDiagram
 | `GET` | `/status` | | `{indexed, filename, pages, chunks}` for the indexed document |
 | `POST` | `/retrieve` | `{question, k?, advanced?: {rewrite, hybrid, rerank}}` | HNSW and exact hits with pages and scores, `recall`, timings, and every advanced stage |
 | `POST` | `/ask` | `{question, mode: "plain" \| "rag", chunk_ids?}` | Streamed plain text answer |
+| `GET` | `/eval/configs` | | Configurations and metrics the harness knows |
+| `GET` / `POST` | `/eval/dataset` | `{n?, seed?, workers?}` | The test set; POST starts writing a new one |
+| `DELETE` | `/eval/dataset/<id>` | | Remove one question |
+| `POST` | `/eval/run` | `{configs?, judge?, limit?, workers?}` | Starts a run in the background |
+| `GET` | `/eval/job` | | Progress of the running job: `{status, kind, done, total, message}` |
+| `POST` | `/eval/cancel` | | Stop the running job (a cancelled run keeps finished questions) |
+| `GET` | `/eval/runs`, `/eval/runs/<id>`, `/eval/runs/<id>/report.md` | | Saved runs, one run with every answer and score, Markdown report |
 | `GET` | `/health` | | `{status: "ok"}` |
 
 ---
@@ -283,8 +349,19 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Optional environment variables: `OLLAMA_URL`, `EMBED_MODEL`, `LLM_MODEL`, `HNSW_EXE`, `FLASK_DEBUG=1`.
+Optional environment variables: `OLLAMA_URL`, `EMBED_MODEL`, `LLM_MODEL`, `JUDGE_MODEL` (evaluation grader,
+defaults to `LLM_MODEL`), `HNSW_EXE`, `FLASK_DEBUG=1`.
 The frontend reads `VITE_API_URL` (default `http://127.0.0.1:5000`).
+
+Tests run against a mock Ollama, so they need no models (the HNSW binary must be compiled):
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest tests
+```
+
+`python tests/mock_ollama.py` also starts that mock on port 11434, to click through the UI without models.
+Its scores mean nothing about llama3.2.
 
 ### 4. Frontend
 ```bash
@@ -304,14 +381,20 @@ rag-engine/
 │   ├── hnsw.cpp          # HNSW vector index (C++, from scratch)
 │   ├── hnsw.exe          # compiled binary (not committed)
 │   ├── index.bin         # HNSW graph + vectors (generated)
-│   └── chunks.json       # chunk text and page numbers (generated)
+│   ├── chunks.json       # chunk text and page numbers (generated)
+│   └── eval/             # evaluation test set and saved runs (generated)
 ├── backend/
-│   ├── app.py            # Flask API + advanced pipeline (rewrite, rerank)
+│   ├── app.py            # Flask API routes
+│   ├── pipeline.py       # embeddings, HNSW calls, LLM calls, advanced pipeline (rewrite, rerank)
 │   ├── retrieval.py      # BM25 keyword search and rank fusion
+│   ├── evaluation.py     # evaluation harness: test sets, metrics, judge, statistics, reports
+│   ├── evaluate.py       # command line for the harness
+│   ├── tests/            # unit and end-to-end tests, mock Ollama
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/
-│   │   └── App.jsx       # React UI
+│   │   ├── App.jsx       # React UI: upload and Compare
+│   │   └── Evaluation.jsx # Evaluate tab: test set, runs, charts
 │   ├── index.html
 │   └── package.json
 ├── .gitignore

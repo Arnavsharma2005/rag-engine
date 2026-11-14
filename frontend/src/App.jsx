@@ -1,17 +1,6 @@
 import { useState, useRef, useEffect } from "react"
-
-const API = import.meta.env.VITE_API_URL || "http://127.0.0.1:5000"
-
-const card = {
-  background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 8,
-  padding: "16px 20px"
-}
-const label = { color: "#4fc3f7", margin: "0 0 10px", fontSize: "0.8rem", letterSpacing: 1 }
-const muted = { color: "#888", fontSize: "0.8rem" }
-
-async function readError(res) {
-  try { return (await res.json()).error || res.statusText } catch { return res.statusText }
-}
+import { API, card, label, muted, readError } from "./ui"
+import Evaluation from "./Evaluation"
 
 // Stream a text/plain response into setText
 async function streamInto(res, setText) {
@@ -152,6 +141,7 @@ export default function App() {
   const [steps, setSteps] = useState({ rewrite: true, hybrid: true, rerank: true })
   const [retrieval, setRetrieval] = useState(null)
   const [error, setError] = useState("")
+  const [view, setView] = useState("compare")
   const fileRef = useRef()
 
   // Pick up the document that is already indexed after a page refresh
@@ -238,6 +228,18 @@ export default function App() {
           </p>
         </div>
 
+        {/* Views */}
+        <div style={{ display: "flex", gap: 4, borderBottom: "1px solid #2a2a2a" }}>
+          {[["compare", "Compare"], ["evaluate", "Evaluate"]].map(([key, name]) => (
+            <button key={key} onClick={() => setView(key)} style={{
+              padding: "8px 16px", border: "none", cursor: "pointer", fontFamily: "inherit",
+              fontSize: "0.9rem", background: "transparent",
+              color: view === key ? "#4fc3f7" : "#888",
+              borderBottom: view === key ? "2px solid #4fc3f7" : "2px solid transparent"
+            }}>{name}</button>
+          ))}
+        </div>
+
         {/* Upload */}
         <div style={{
           background: "#1a1a1a", border: "1px dashed #333", borderRadius: 8,
@@ -256,62 +258,66 @@ export default function App() {
           }
         </div>
 
-        {/* Question input */}
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            value={question}
-            onChange={e => setQuestion(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleAsk()}
-            placeholder={doc ? "Ask something only your document knows..." : "Upload a PDF first"}
-            disabled={!doc || loading}
-            style={{
-              flex: 1, minWidth: 0, padding: "10px 14px", borderRadius: 6, border: "1px solid #333",
-              background: "#1a1a1a", color: "#e0e0e0", fontSize: "0.95rem", outline: "none"
-            }}
-          />
-          <button onClick={handleAsk} disabled={!doc || loading || !question.trim()}
-            style={{
-              padding: "10px 20px", borderRadius: 6, border: "none",
-              background: doc ? "#4fc3f7" : "#333",
-              color: doc ? "#000" : "#666", cursor: doc ? "pointer" : "default",
-              fontWeight: "bold", fontSize: "0.9rem"
-            }}>
-            {loading ? "..." : "Compare"}
-          </button>
-        </div>
+        {view === "evaluate" && <Evaluation doc={doc} />}
 
-        {/* Advanced pipeline switches */}
-        <div style={{ display: "flex", gap: 20, flexWrap: "wrap", fontSize: "0.85rem" }}>
-          {STEPS.map(s => (
-            <label key={s.key} title={s.help} style={{ cursor: "pointer", color: steps[s.key] ? "#e0e0e0" : "#666" }}>
-              <input type="checkbox" checked={steps[s.key]} disabled={loading}
-                onChange={e => setSteps({ ...steps, [s.key]: e.target.checked })}
-                style={{ marginRight: 6, accentColor: "#ab47bc" }} />
-              {s.name}
-            </label>
-          ))}
-          <span style={muted}>(advanced RAG; turn all off to compare basic RAG only)</span>
-        </div>
-
-        {error && <p style={{ color: "#ef5350", margin: 0 }}>{error}</p>}
-
-        {/* Answers side by side */}
-        {(plain || rag || advanced || loading) && (
-          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-            <Answer title="WITHOUT RAG" subtitle="llama3.2 on its own, no document"
-              text={plain} loading={loading} accent="#888" />
-            <Answer title="BASIC RAG" subtitle="llama3.2 + top 5 chunks from HNSW, cites [n]"
-              text={rag} loading={loading} accent="#66bb6a" />
-            {(advanced || (loading && Object.values(steps).some(Boolean))) && (
-              <Answer title="ADVANCED RAG"
-                subtitle={STEPS.filter(s => steps[s.key]).map(s => s.name.toLowerCase()).join(" + ")}
-                text={advanced} loading={loading} accent="#ab47bc" />
-            )}
+        {view === "compare" && <>
+          {/* Question input */}
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              value={question}
+              onChange={e => setQuestion(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleAsk()}
+              placeholder={doc ? "Ask something only your document knows..." : "Upload a PDF first"}
+              disabled={!doc || loading}
+              style={{
+                flex: 1, minWidth: 0, padding: "10px 14px", borderRadius: 6, border: "1px solid #333",
+                background: "#1a1a1a", color: "#e0e0e0", fontSize: "0.95rem", outline: "none"
+              }}
+            />
+            <button onClick={handleAsk} disabled={!doc || loading || !question.trim()}
+              style={{
+                padding: "10px 20px", borderRadius: 6, border: "none",
+                background: doc ? "#4fc3f7" : "#333",
+                color: doc ? "#000" : "#666", cursor: doc ? "pointer" : "default",
+                fontWeight: "bold", fontSize: "0.9rem"
+              }}>
+              {loading ? "..." : "Compare"}
+            </button>
           </div>
-        )}
 
-        {retrieval?.advanced && <Pipeline adv={retrieval.advanced} question={question} />}
-        {retrieval && <Retrieval data={retrieval} />}
+          {/* Advanced pipeline switches */}
+          <div style={{ display: "flex", gap: 20, flexWrap: "wrap", fontSize: "0.85rem" }}>
+            {STEPS.map(s => (
+              <label key={s.key} title={s.help} style={{ cursor: "pointer", color: steps[s.key] ? "#e0e0e0" : "#666" }}>
+                <input type="checkbox" checked={steps[s.key]} disabled={loading}
+                  onChange={e => setSteps({ ...steps, [s.key]: e.target.checked })}
+                  style={{ marginRight: 6, accentColor: "#ab47bc" }} />
+                {s.name}
+              </label>
+            ))}
+            <span style={muted}>(advanced RAG; turn all off to compare basic RAG only)</span>
+          </div>
+
+          {error && <p style={{ color: "#ef5350", margin: 0 }}>{error}</p>}
+
+          {/* Answers side by side */}
+          {(plain || rag || advanced || loading) && (
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+              <Answer title="WITHOUT RAG" subtitle="llama3.2 on its own, no document"
+                text={plain} loading={loading} accent="#888" />
+              <Answer title="BASIC RAG" subtitle="llama3.2 + top 5 chunks from HNSW, cites [n]"
+                text={rag} loading={loading} accent="#66bb6a" />
+              {(advanced || (loading && Object.values(steps).some(Boolean))) && (
+                <Answer title="ADVANCED RAG"
+                  subtitle={STEPS.filter(s => steps[s.key]).map(s => s.name.toLowerCase()).join(" + ")}
+                  text={advanced} loading={loading} accent="#ab47bc" />
+              )}
+            </div>
+          )}
+
+          {retrieval?.advanced && <Pipeline adv={retrieval.advanced} question={question} />}
+          {retrieval && <Retrieval data={retrieval} />}
+        </>}
       </div>
     </div>
   )
