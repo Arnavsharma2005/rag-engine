@@ -8,12 +8,14 @@ const BAD = "#ef5350"
 // Latency stages, in pipeline order (categorical slots 1-5, dark-surface steps)
 const STAGES = [
   ["embed_ms", "embed", "#3987e5"],
+  ["plan_ms", "plan", "#8e7cc3"],
   ["rewrite_ms", "rewrite", "#d95926"],
   ["search_ms", "search", "#199e70"],
   ["rerank_ms", "rerank", "#c98500"],
   ["generate_ms", "generate", "#d55181"],
+  ["check_ms", "self-check", "#5fa8a8"],
 ]
-const TABLE_KEYS = ["hit1", "hit5", "mrr", "ndcg5", "correctness", "faithfulness", "relevance", "f1", "refusal", "total_ms"]
+const TABLE_KEYS = ["hit1", "hit5", "mrr", "ndcg5", "correctness", "faithfulness", "relevance", "f1", "refusal", "grounded", "total_ms"]
 
 const input = {
   background: "#0f0f0f", color: "#e0e0e0", border: "1px solid #333", borderRadius: 4,
@@ -117,7 +119,7 @@ function RunPanel({ meta, dataset, busy, onRun }) {
     setPicked(s)
   }
   const groups = [
-    ["Baselines", meta.configs.filter(c => c.kind !== "advanced")],
+    ["Baselines and agent", meta.configs.filter(c => c.kind !== "advanced")],
     ["Advanced steps (every on/off combination, for ablation)", meta.configs.filter(c => c.kind === "advanced")],
   ]
   return (

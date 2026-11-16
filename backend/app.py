@@ -1,6 +1,8 @@
 import os
 import json
 import time
+import queue
+import threading
 import fitz  # PyMuPDF
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
@@ -8,6 +10,7 @@ from pipeline import (BackendError, CHUNKS_FILE, TOP_K, index_lock, embed, embed
                       vec_to_str, run_hnsw, hnsw_query, extract_pages, chunk_pages, load_doc,
                       page_label, plain_prompt, rag_prompt, stream_llm, advanced_retrieve)
 import evaluation
+import agent
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB uploads
@@ -146,6 +149,39 @@ def ask():
         prompt = rag_prompt(question, sources)
 
     return Response(stream_with_context(stream_llm(prompt)), mimetype="text/plain")
+
+
+@app.route("/agent", methods=["POST"])
+def agent_ask():
+    """Answer with the agentic pipeline: {question, max_steps?, self_check?}.
+    Streams newline-delimited JSON events (route, tool, map, escalate, correct,
+    check, answer) so the UI can show each decision as it happens."""
+    data = request.get_json(silent=True) or {}
+    question = data.get("question", "").strip()
+    if not question:
+        return jsonify({"error": "no question"}), 400
+    doc = load_doc()
+    if not doc:
+        return jsonify({"error": "upload a PDF first"}), 400
+    max_steps = max(1, min(int(data.get("max_steps", agent.MAX_STEPS)), 8))
+    events: queue.Queue = queue.Queue()
+
+    def work():
+        try:
+            agent.run(question, doc["chunks"], doc["filename"], emit=events.put,
+                      max_steps=max_steps, self_check=bool(data.get("self_check", True)))
+        except Exception as e:  # report the failure to the client instead of hanging
+            events.put({"type": "error", "error": str(e)})
+        finally:
+            events.put(None)
+
+    threading.Thread(target=work, daemon=True).start()
+
+    def stream():
+        while (event := events.get()) is not None:
+            yield json.dumps(event) + "\n"
+
+    return Response(stream_with_context(stream()), mimetype="application/x-ndjson")
 
 
 # ---------- evaluation ----------

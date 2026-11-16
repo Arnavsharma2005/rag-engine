@@ -23,6 +23,7 @@ import threading
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
+import agent
 import pipeline
 from pipeline import (BackendError, TOP_K, CANDIDATES, index_lock, load_doc, page_label,
                       embed_query, hnsw_query, advanced_retrieve, plain_prompt, rag_prompt,
@@ -61,6 +62,8 @@ CONFIGS = [
     {"id": "exact", "name": "Exact search", "kind": "exact",
      "flags": {s: False for s in ADVANCED_STEPS}},
     *_advanced_configs(),
+    {"id": "agent", "name": "Agentic RAG", "kind": "agent",
+     "flags": {s: False for s in ADVANCED_STEPS}},
 ]
 CONFIG_BY_ID = {c["id"]: c for c in CONFIGS}
 REFERENCE = "basic"  # paired differences are reported against this configuration
@@ -81,10 +84,11 @@ METRICS = [
     ("refusal", "Refusal rate", "answer", False),
     ("cited", "Cites a source", "answer", True),
     ("citation_valid", "Valid citations", "answer", True),
+    ("grounded", "Passed self-check", "answer", True),
     ("total_ms", "Latency (ms)", "latency", False),
 ]
 METRIC_KEYS = [m[0] for m in METRICS]
-STAGES = ("embed_ms", "rewrite_ms", "search_ms", "rerank_ms", "generate_ms")
+STAGES = ("embed_ms", "plan_ms", "rewrite_ms", "search_ms", "rerank_ms", "generate_ms", "check_ms")
 
 
 # ---------- text helpers ----------
@@ -381,9 +385,25 @@ def run_config(item: dict, config: dict, chunks: list[dict], q_vec, embed_ms: fl
     lat = {s: 0.0 for s in STAGES}
     rec = {"config": config["id"], "item": item["id"]}
 
+    answer = None
     if config["kind"] == "plain":
         sources = None
         prompt = plain_prompt(question)
+    elif config["kind"] == "agent":
+        res = agent.run(question, chunks)
+        ranked = res["sources"]
+        for s, ms in res["timings"].items():
+            if s in lat:
+                lat[s] = float(ms)
+        rec["route"] = res["route"]
+        rec["steps"] = [{k: s[k] for k in ("type", "tool", "input", "found") if k in s}
+                        for s in res["steps"] if s["type"] in ("tool", "correct", "escalate")]
+        rec["retrieved"] = ranked
+        rec.update(retrieval_metrics(ranked, relevant))
+        sources = [chunks[i] for i in ranked]
+        answer = res["answer"]
+        if res["check"] is not None:
+            rec["grounded"] = 1.0 if res["check"]["grounded"] else 0.0
     else:
         lat["embed_ms"] = embed_ms
         if config["kind"] in ("hnsw", "exact"):
@@ -408,8 +428,9 @@ def run_config(item: dict, config: dict, chunks: list[dict], q_vec, embed_ms: fl
         sources = [chunks[i] for i in ranked]
         prompt = rag_prompt(question, sources)
 
-    answer, gen_ms = llm_call(prompt)
-    lat["generate_ms"] = gen_ms
+    if answer is None:
+        answer, gen_ms = llm_call(prompt)
+        lat["generate_ms"] = gen_ms
     rec["answer"] = answer
     rec.update(answer_metrics(answer, item["answer"], len(sources) if sources is not None else None))
 
