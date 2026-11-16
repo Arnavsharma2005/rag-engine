@@ -386,6 +386,29 @@ docker run -p 7860:7860 -e LLM_PROVIDER=openai -e OPENAI_API_KEY=... \
 
 `CORS_ORIGINS` (comma-separated) allows a frontend hosted on another domain.
 
+### Free public hosting: Hugging Face Space + GitHub Pages
+
+On every merge to `main`, after the checks pass, two more jobs run:
+
+| Job | What it does |
+|---|---|
+| `deploy-space` | `deploy/hf/deploy.py` pushes the app to a Hugging Face Space. The Space builds `deploy/hf/Dockerfile`, which runs Ollama inside the container with `llama3.2:1b` and `nomic-embed-text` baked in, so it needs no API keys |
+| `deploy-pages` | Builds the UI pointed at the Space's API and publishes it to GitHub Pages |
+
+One-time setup:
+
+1. Create a Hugging Face account and a **write** access token (Settings > Access Tokens).
+2. In the GitHub repo, under Settings > Secrets and variables > Actions:
+   add the secret `HF_TOKEN`, and the variable `HF_SPACE` set to `<your-hf-username>/rag-engine`.
+3. Under Settings > Pages, set the source to **GitHub Actions**.
+
+Both jobs are skipped until `HF_SPACE` is set. The Space is created on the first deploy. The app is then
+live at `https://huggingface.co/spaces/<HF_SPACE>` and at `https://<github-username>.github.io/rag-engine/`.
+
+Limits of the free tier: the 1B model on 2 CPUs takes a few seconds per answer and is weaker than
+`llama3.2`; the Space sleeps after 48 hours without visitors; the indexed PDF is lost on restart; and all
+visitors share one index, so don't upload private documents to a public Space.
+
 ---
 
 ## Setup

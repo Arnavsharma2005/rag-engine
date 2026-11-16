@@ -122,3 +122,70 @@ jobs:
             ${{ steps.name.outputs.image }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Build the Hugging Face Space image (without model weights)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/hf/Dockerfile
+          build-args: PULL_MODELS=0
+          load: true
+          tags: rag-engine-space:ci
+          cache-from: type=gha,scope=space
+          cache-to: type=gha,scope=space,mode=max
+      - name: Smoke-test the Space image
+        run: |
+          docker run --rm rag-engine-space:ci ollama --version
+          docker run --rm rag-engine-space:ci python -c "import app; print('app imports')"
+
+  deploy-space:
+    # Pushes the app to a Hugging Face Space, which rebuilds with Ollama and the models inside.
+    # Needs the HF_TOKEN secret (a write token) and the HF_SPACE variable (owner/name).
+    needs: image
+    if: github.event_name == 'push' && vars.HF_SPACE != ''
+    runs-on: ubuntu-latest
+    environment:
+      name: huggingface
+      url: https://huggingface.co/spaces/${{ vars.HF_SPACE }}
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Deploy
+        run: |
+          if [ -z "$HF_TOKEN" ]; then echo "::error::Add the HF_TOKEN secret to deploy"; exit 1; fi
+          pip install huggingface_hub==2.4.0
+          python deploy/hf/deploy.py "${{ vars.HF_SPACE }}" \
+            --cors "https://${GITHUB_REPOSITORY_OWNER,,}.github.io" \
+            --message "Deploy ${GITHUB_SHA::7} from GitHub Actions"
+
+  deploy-pages:
+    # Publishes the UI to GitHub Pages, pointed at the Space's API.
+    # Turn on Pages with "GitHub Actions" as the source first (Settings > Pages).
+    needs: deploy-space
+    if: github.event_name == 'push' && vars.HF_SPACE != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: frontend/package-lock.json }
+      - name: Build the UI against the Space
+        working-directory: frontend
+        run: |
+          space="${{ vars.HF_SPACE }}"
+          host=$(echo "${space/\//-}" | tr '[:upper:]' '[:lower:]' | tr '._' '--')
+          npm ci
+          VITE_API_URL="https://${host}.hf.space" VITE_BASE="/${GITHUB_REPOSITORY#*/}/" npm run build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: frontend/dist }
+      - id: deploy
+        uses: actions/deploy-pages@v4
