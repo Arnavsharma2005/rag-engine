@@ -86,7 +86,7 @@ def _post(url: str, body: dict, **kw):
         return requests.post(url, json=body, **kw)
     except requests.RequestException as e:
         where = OLLAMA_URL if PROVIDER == "ollama" else OPENAI_BASE_URL
-        raise BackendError(f"Can't reach the model server at {where}: {e}")
+        raise BackendError(f"Can't reach the model server at {where}: {e}") from e
 
 
 def _json(r) -> dict:

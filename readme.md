@@ -15,6 +15,7 @@ Built with a custom HNSW vector index in C++, Ollama for local LLM inference, Fl
 - [Evaluation](#evaluation): measure what each step is worth
 - [How HNSW search works](#how-hnsw-search-works)
 - [Data model](#data-model) and [API](#api)
+- [CI/CD and deployment](#cicd-and-deployment)
 - [Setup](#setup)
 
 ---
@@ -354,6 +355,36 @@ classDiagram
 | `GET` | `/health` | | `{status: "ok"}` |
 
 ---
+
+---
+
+## CI/CD and deployment
+
+`.github/workflows/ci.yml` runs on every pull request and every push to `main`:
+
+| Job | What it does |
+|---|---|
+| `lint` | `ruff check backend`, then `eslint` and a production build of the frontend |
+| `test` | Compiles the HNSW engine and runs `pytest` against the mock model |
+| `eval-gate` | `backend/eval_gate.py --mock` indexes a fixed test PDF, writes a test set, and runs no RAG, basic, advanced and agentic RAG. The build fails if any score drops below `backend/eval_thresholds.json`. The report shows up in the job summary and as an artifact |
+| `eval-real` | The same gate against a real model through an OpenAI-compatible API. Runs on `main` and weekly once you add the `LLM_API_KEY` secret and the `LLM_BASE_URL`, `LLM_MODEL` and `EMBED_MODEL` variables |
+| `image` | Builds the Docker image on every PR. On `main` it publishes `ghcr.io/arnavsharma2005/rag-engine` |
+
+The mock gate proves every pipeline runs end to end. It can't measure answer quality, which is what
+`eval-real`, or a local run of the Evaluate tab, is for.
+
+### Run the image
+
+The image bundles the HNSW engine, the API and the built UI, all on port 7860:
+
+```bash
+docker compose up            # app + Ollama, pulls llama3.2 and nomic-embed-text on first start
+# or, with a hosted model:
+docker run -p 7860:7860 -e LLM_PROVIDER=openai -e OPENAI_API_KEY=... \
+  -e LLM_MODEL=gpt-4o-mini -e EMBED_MODEL=text-embedding-3-small ghcr.io/arnavsharma2005/rag-engine
+```
+
+`CORS_ORIGINS` (comma-separated) allows a frontend hosted on another domain.
 
 ---
 
