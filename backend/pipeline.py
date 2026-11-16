@@ -16,7 +16,12 @@ HNSW_EXE = os.environ.get(
     "HNSW_EXE", os.path.join(HNSW_CWD, "hnsw.exe" if os.name == "nt" else "hnsw")
 )
 CHUNKS_FILE = os.path.join(HNSW_CWD, "chunks.json")
+# "ollama" (default, fully local) or "openai": any OpenAI-compatible API
+# (OpenAI, Groq, Together, vLLM, LM Studio...) at OPENAI_BASE_URL
+PROVIDER = os.environ.get("LLM_PROVIDER", "ollama").lower()
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 LLM_MODEL = os.environ.get("LLM_MODEL", "llama3.2")
 TOP_K = 5
@@ -72,19 +77,45 @@ embed_cache = TimedCache()
 
 # ---------- embeddings and HNSW ----------
 
+def _openai_headers() -> dict:
+    return {"Authorization": f"Bearer {OPENAI_API_KEY}"} if OPENAI_API_KEY else {}
+
+
+def _post(url: str, body: dict, **kw):
+    try:
+        return requests.post(url, json=body, **kw)
+    except requests.RequestException as e:
+        where = OLLAMA_URL if PROVIDER == "ollama" else OPENAI_BASE_URL
+        raise BackendError(f"Can't reach the model server at {where}: {e}") from e
+
+
+def _json(r) -> dict:
+    try:
+        data = r.json()
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def embed(texts: list[str], kind: str) -> list[list[float]]:
-    """Embed texts with nomic-embed-text. kind is "document" or "query":
-    the model expects a task prefix on each input."""
-    prefix = "search_document: " if kind == "document" else "search_query: "
+    """Embed texts. kind is "document" or "query": nomic-embed-text expects a
+    task prefix on each input, other models get the text as is."""
+    prefix = ""
+    if "nomic" in EMBED_MODEL:
+        prefix = "search_document: " if kind == "document" else "search_query: "
     vectors = []
     for i in range(0, len(texts), 32):
         batch = [prefix + t for t in texts[i:i + 32]]
-        try:
-            r = requests.post(f"{OLLAMA_URL}/api/embed",
-                              json={"model": EMBED_MODEL, "input": batch}, timeout=300)
-        except requests.RequestException as e:
-            raise BackendError(f"Can't reach Ollama at {OLLAMA_URL}: {e}")
-        data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        if PROVIDER == "openai":
+            r = _post(f"{OPENAI_BASE_URL}/embeddings", {"model": EMBED_MODEL, "input": batch},
+                      headers=_openai_headers(), timeout=300)
+            data = _json(r)
+            if r.status_code != 200 or "data" not in data:
+                raise BackendError(f"Embedding failed: {data.get('error', r.text[:200])}")
+            vectors.extend(d["embedding"] for d in sorted(data["data"], key=lambda d: d["index"]))
+            continue
+        r = _post(f"{OLLAMA_URL}/api/embed", {"model": EMBED_MODEL, "input": batch}, timeout=300)
+        data = _json(r)
         if r.status_code != 200 or "embeddings" not in data:
             raise BackendError(f"Embedding failed: {data.get('error', r.text[:200])}")
         vectors.extend(data["embeddings"])
@@ -197,13 +228,26 @@ Answer:"""
 def stream_llm(prompt: str):
     """Yield the LLM's answer as it is generated."""
     try:
-        r = requests.post(f"{OLLAMA_URL}/api/generate", json={
-            "model": LLM_MODEL,
-            "prompt": prompt,
-            "stream": True
-        }, stream=True, timeout=300)
-    except requests.RequestException as e:
-        yield f"[error] Can't reach Ollama at {OLLAMA_URL}: {e}"
+        if PROVIDER == "openai":
+            r = _post(f"{OPENAI_BASE_URL}/chat/completions", {
+                "model": LLM_MODEL, "stream": True,
+                "messages": [{"role": "user", "content": prompt}]},
+                headers=_openai_headers(), stream=True, timeout=300)
+            if r.status_code != 200:
+                yield f"[error] {_json(r).get('error', r.text[:200])}"
+                return
+            for line in r.iter_lines():
+                line = line.decode() if isinstance(line, bytes) else line
+                if not line.startswith("data: ") or line == "data: [DONE]":
+                    continue
+                delta = json.loads(line[6:])["choices"][0].get("delta", {})
+                if delta.get("content"):
+                    yield delta["content"]
+            return
+        r = _post(f"{OLLAMA_URL}/api/generate", {"model": LLM_MODEL, "prompt": prompt,
+                                                 "stream": True}, stream=True, timeout=300)
+    except BackendError as e:
+        yield f"[error] {e}"
         return
     for line in r.iter_lines():
         if line:
@@ -214,6 +258,30 @@ def stream_llm(prompt: str):
                 yield data["response"]
 
 
+def _generate(prompt: str, as_json: bool, model: str) -> str:
+    """One non-streaming, temperature 0 completion from the configured provider."""
+    if PROVIDER == "openai":
+        body = {"model": model, "temperature": 0,
+                "messages": [{"role": "user", "content": prompt}]}
+        if as_json:
+            body["response_format"] = {"type": "json_object"}
+        r = _post(f"{OPENAI_BASE_URL}/chat/completions", body, headers=_openai_headers(), timeout=600)
+        data = _json(r)
+        if r.status_code != 200 or "choices" not in data:
+            raise BackendError(f"LLM call failed: {data.get('error', r.text[:200])}")
+        return (data["choices"][0]["message"].get("content") or "").strip()
+    body = {"model": model, "prompt": prompt, "stream": False, "options": {"temperature": 0}}
+    if as_json:
+        body["format"] = "json"
+    r = _post(f"{OLLAMA_URL}/api/generate", body, timeout=600)
+    data = _json(r)
+    if not data:
+        raise BackendError(f"LLM call failed: {r.text[:200]}")
+    if "error" in data:
+        raise BackendError(f"LLM call failed: {data['error']}")
+    return data.get("response", "").strip()
+
+
 def llm_call(prompt: str, as_json=False, model: str | None = None) -> tuple[str, float]:
     """One non-streaming, temperature 0 LLM call, cached because it is deterministic.
     Returns (text, milliseconds the generation took)."""
@@ -222,22 +290,8 @@ def llm_call(prompt: str, as_json=False, model: str | None = None) -> tuple[str,
     hit = llm_cache.get(key)
     if hit:
         return hit
-    body = {"model": model, "prompt": prompt, "stream": False,
-            "options": {"temperature": 0}}
-    if as_json:
-        body["format"] = "json"
     t = time.perf_counter()
-    try:
-        r = requests.post(f"{OLLAMA_URL}/api/generate", json=body, timeout=600)
-    except requests.RequestException as e:
-        raise BackendError(f"Can't reach Ollama at {OLLAMA_URL}: {e}")
-    try:
-        data = r.json()
-    except ValueError:
-        raise BackendError(f"LLM call failed: {r.text[:200]}")
-    if "error" in data:
-        raise BackendError(f"LLM call failed: {data['error']}")
-    result = (data.get("response", "").strip(), (time.perf_counter() - t) * 1000)
+    result = (_generate(prompt, as_json, model), (time.perf_counter() - t) * 1000)
     llm_cache.put(key, result)
     return result
 

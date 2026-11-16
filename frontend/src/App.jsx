@@ -75,6 +75,68 @@ function Retrieval({ data }) {
   )
 }
 
+const TOOL_NAMES = { search: "Hybrid search", keyword: "Keyword search", read_neighbors: "Read neighbors", read_page: "Read page" }
+
+// Read a newline-delimited JSON stream, calling onEvent for each object
+async function readEvents(res, onEvent) {
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ""
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    const lines = buf.split("\n")
+    buf = lines.pop()
+    lines.filter(Boolean).forEach(l => onEvent(JSON.parse(l)))
+  }
+  if (buf.trim()) onEvent(JSON.parse(buf))
+}
+
+function describeEvent(e) {
+  switch (e.type) {
+    case "route": return [`Route: ${e.route}`, e.reason]
+    case "tool": return [`${TOOL_NAMES[e.tool] || e.tool}: "${e.input}"`,
+      e.error ? `failed: ${e.error}` : `${e.found.length} chunks (${e.pages.join(", ")})${e.new?.length < e.found.length ? `, ${e.new.length} new` : ""}${e.thought ? ` · ${e.thought}` : ""}`]
+    case "think": return ["Enough evidence, answering", e.thought]
+    case "map": return [`Summarized ${e.pages.join(", ")}`, e.summary]
+    case "escalate": return ["Escalated to research", e.reason]
+    case "correct": return ["Corrective search", `${e.claims.length} unsupported claim(s), found ${e.pages.join(", ")}`]
+    case "check": return [e.refused ? "Self-check: answer declined" : e.grounded ? "Self-check: every claim supported" : "Self-check: some claims unsupported",
+      e.claims?.length ? `${e.claims.filter(c => c.supported).length} of ${e.claims.length} claims supported` : ""]
+    default: return [e.type, ""]
+  }
+}
+
+function AgentTrace({ events, result }) {
+  const accent = "#26a69a"
+  return (
+    <div style={{ ...card, width: "100%" }}>
+      <p style={{ ...label, color: accent }}>AGENT TRACE — HOW THE AGENT ANSWERED</p>
+      <ol style={{ margin: "0 0 12px", paddingLeft: 20, fontSize: "0.85rem", lineHeight: 1.6 }}>
+        {events.filter(e => e.type !== "answer").map((e, i) => {
+          const [head, detail] = describeEvent(e)
+          return <li key={i}>{head}{detail && <span style={muted}> · {detail}</span>}</li>
+        })}
+      </ol>
+      {result?.check?.claims?.filter(c => !c.supported).map((c, i) => (
+        <p key={i} style={{ fontSize: "0.8rem", color: "#ffa726", margin: "0 0 6px" }}>Unsupported: {c.claim}</p>
+      ))}
+      {result && (
+        <p style={{ ...muted, margin: "0 0 10px" }}>
+          {result.llm_calls} model calls · {(result.wall_ms / 1000).toFixed(1)} s
+        </p>
+      )}
+      {result?.citations.map(c => (
+        <details key={c.id} style={{ borderTop: "1px solid #2a2a2a", padding: "8px 0" }}>
+          <summary style={{ cursor: "pointer", fontSize: "0.85rem" }}>[{c.n}] #{c.id} {c.pages}</summary>
+          <p style={{ ...muted, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{c.text}</p>
+        </details>
+      ))}
+    </div>
+  )
+}
+
 const STEPS = [
   { key: "rewrite", name: "Query rewriting", help: "LLM turns the question into a search query with key terms and synonyms" },
   { key: "hybrid", name: "Hybrid search", help: "BM25 keyword search alongside HNSW, merged with reciprocal rank fusion" },
@@ -140,6 +202,9 @@ export default function App() {
   const [advanced, setAdvanced] = useState("")
   const [steps, setSteps] = useState({ rewrite: true, hybrid: true, rerank: true })
   const [retrieval, setRetrieval] = useState(null)
+  const [useAgent, setUseAgent] = useState(true)
+  const [agentEvents, setAgentEvents] = useState([])
+  const [agentResult, setAgentResult] = useState(null)
   const [error, setError] = useState("")
   const [view, setView] = useState("compare")
   const fileRef = useRef()
@@ -176,6 +241,7 @@ export default function App() {
     setLoading(true)
     setError("")
     setPlain(""); setRag(""); setAdvanced(""); setRetrieval(null)
+    setAgentEvents([]); setAgentResult(null)
     const useAdvanced = Object.values(steps).some(Boolean)
 
     const ask = body => fetch(`${API}/ask`, {
@@ -187,6 +253,20 @@ export default function App() {
     try {
       // The baseline doesn't need retrieval, so start it right away
       const plainDone = ask({ mode: "plain" }).then(res => streamInto(res, setPlain))
+      const agentDone = useAgent
+        ? fetch(`${API}/agent`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question })
+        }).then(async res => {
+          if (!res.ok) throw new Error(await readError(res))
+          await readEvents(res, e => {
+            if (e.type === "error") throw new Error(`Agent: ${e.error}`)
+            setAgentEvents(prev => [...prev, e])
+            if (e.type === "answer") setAgentResult(e)
+          })
+        })
+        : null
 
       const res = await fetch(`${API}/retrieve`, {
         method: "POST",
@@ -203,7 +283,7 @@ export default function App() {
         ? ask({ mode: "rag", chunk_ids: r.advanced.final.map(h => h.id) })
           .then(res => streamInto(res, setAdvanced))
         : null
-      await Promise.all([plainDone, ragDone, advDone])
+      await Promise.all([plainDone, ragDone, advDone, agentDone])
     } catch (err) {
       setError(err.message)
     } finally {
@@ -223,7 +303,7 @@ export default function App() {
             RAG vs no RAG
           </h1>
           <p style={{ color: "#666", margin: 0, fontSize: "0.85rem" }}>
-            Ask a question about your PDF and see llama3.2 answer with no retrieval, basic RAG and advanced RAG.
+            Ask a question about your PDF and see llama3.2 answer with no retrieval, basic RAG, advanced RAG and an agent.
             HNSW vector search, fully local.
           </p>
         </div>
@@ -296,6 +376,13 @@ export default function App() {
               </label>
             ))}
             <span style={muted}>(advanced RAG; turn all off to compare basic RAG only)</span>
+            <label title="Routes the question, searches with tools until it has enough evidence, then checks every claim against its sources"
+              style={{ cursor: "pointer", color: useAgent ? "#e0e0e0" : "#666" }}>
+              <input type="checkbox" checked={useAgent} disabled={loading}
+                onChange={e => setUseAgent(e.target.checked)}
+                style={{ marginRight: 6, accentColor: "#26a69a" }} />
+              Agentic RAG
+            </label>
           </div>
 
           {error && <p style={{ color: "#ef5350", margin: 0 }}>{error}</p>}
@@ -312,9 +399,17 @@ export default function App() {
                   subtitle={STEPS.filter(s => steps[s.key]).map(s => s.name.toLowerCase()).join(" + ")}
                   text={advanced} loading={loading} accent="#ab47bc" />
               )}
+              {(agentResult || (loading && useAgent)) && (
+                <Answer title="AGENTIC RAG"
+                  subtitle={agentResult
+                    ? `route: ${agentResult.route} · ${agentResult.check ? (agentResult.check.grounded ? "self-check passed" : "self-check flagged claims") : "no self-check"}`
+                    : agentEvents.length ? describeEvent(agentEvents[agentEvents.length - 1])[0] : "planning..."}
+                  text={agentResult?.answer} loading={loading} accent="#26a69a" />
+              )}
             </div>
           )}
 
+          {agentEvents.length > 0 && <AgentTrace events={agentEvents} result={agentResult} />}
           {retrieval?.advanced && <Pipeline adv={retrieval.advanced} question={question} />}
           {retrieval && <Retrieval data={retrieval} />}
         </>}

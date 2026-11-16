@@ -23,3 +23,4 @@ hnsw/hnsw
 
 # Evaluation test sets and run results
 hnsw/eval/
+backend/eval-report.md

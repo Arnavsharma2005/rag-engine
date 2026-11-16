@@ -1,0 +1,9 @@
+**/node_modules
+**/__pycache__
+frontend/dist
+hnsw/hnsw
+hnsw/hnsw.exe
+hnsw/index.bin
+hnsw/chunks.json
+hnsw/eval
+.git

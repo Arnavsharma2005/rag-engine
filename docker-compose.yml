@@ -1,0 +1,19 @@
+# Self-host everything: docker compose up, then open http://localhost:7860
+# First run pulls the models into the ollama volume (a few GB).
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes: [ollama:/root/.ollama]
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 3 && ollama pull ${LLM_MODEL:-llama3.2} && ollama pull nomic-embed-text && wait"]
+  app:
+    build: .
+    image: ghcr.io/arnavsharma2005/rag-engine:latest
+    ports: ["7860:7860"]
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      LLM_MODEL: ${LLM_MODEL:-llama3.2}
+    volumes: [data:/data]
+    depends_on: [ollama]
+volumes:
+  ollama:
+  data:

@@ -1,0 +1,5 @@
+{
+  "basic": {"hit5": 0.8, "correctness": 0.7, "faithfulness": 0.8},
+  "advanced": {"hit5": 0.6},
+  "agent": {"hit5": 0.8, "correctness": 0.7, "faithfulness": 0.8, "grounded": 0.8, "p95_ms": 60000}
+}
