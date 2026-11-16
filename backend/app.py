@@ -1,234 +1,19 @@
 import os
 import json
 import time
-import threading
-import subprocess
-import requests
 import fitz  # PyMuPDF
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
-from retrieval import bm25_search, rrf_fuse
+from pipeline import (BackendError, CHUNKS_FILE, TOP_K, index_lock, embed, embed_query,
+                      vec_to_str, run_hnsw, hnsw_query, extract_pages, chunk_pages, load_doc,
+                      page_label, plain_prompt, rag_prompt, stream_llm, advanced_retrieve)
+import evaluation
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB uploads
 
 # Only the local frontend may call the API, so other websites can't read your document
 CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173"])
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-HNSW_CWD = os.environ.get("HNSW_DIR", os.path.join(ROOT, "hnsw"))
-HNSW_EXE = os.environ.get(
-    "HNSW_EXE", os.path.join(HNSW_CWD, "hnsw.exe" if os.name == "nt" else "hnsw")
-)
-CHUNKS_FILE = os.path.join(HNSW_CWD, "chunks.json")
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
-LLM_MODEL = os.environ.get("LLM_MODEL", "llama3.2")
-TOP_K = 5
-CANDIDATES = 15  # how many chunks the advanced pipeline gathers before reranking
-
-# One index on disk, so uploads and searches must not overlap
-index_lock = threading.Lock()
-
-
-class BackendError(Exception):
-    pass
-
-
-# ---------- helpers ----------
-
-def embed(texts: list[str], kind: str) -> list[list[float]]:
-    """Embed texts with nomic-embed-text. kind is "document" or "query":
-    the model expects a task prefix on each input."""
-    prefix = "search_document: " if kind == "document" else "search_query: "
-    vectors = []
-    for i in range(0, len(texts), 32):
-        batch = [prefix + t for t in texts[i:i + 32]]
-        try:
-            r = requests.post(f"{OLLAMA_URL}/api/embed",
-                              json={"model": EMBED_MODEL, "input": batch}, timeout=300)
-        except requests.RequestException as e:
-            raise BackendError(f"Can't reach Ollama at {OLLAMA_URL}: {e}")
-        data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
-        if r.status_code != 200 or "embeddings" not in data:
-            raise BackendError(f"Embedding failed: {data.get('error', r.text[:200])}")
-        vectors.extend(data["embeddings"])
-    return vectors
-
-
-def vec_to_str(vec: list[float]) -> str:
-    """Serialize vector to comma-separated string for C++ subprocess."""
-    return ",".join(f"{v:.6f}" for v in vec)
-
-
-def run_hnsw(args: list[str], stdin: str | None = None) -> str:
-    if not os.path.exists(HNSW_EXE):
-        raise BackendError(f"HNSW binary not found at {HNSW_EXE}. Compile hnsw/hnsw.cpp first.")
-    result = subprocess.run([HNSW_EXE, *args], cwd=HNSW_CWD, input=stdin,
-                            capture_output=True, text=True)
-    if result.returncode != 0:
-        raise BackendError(f"hnsw {args[0]} failed: {result.stderr.strip() or result.returncode}")
-    return result.stdout
-
-
-def hnsw_query(cmd: str, vec: list[float], k: int) -> dict:
-    """Run "search" (HNSW) or "exact" (brute force). Returns hits as
-    (chunk id, distance) plus the C++ side's own timing and work counters."""
-    out = run_hnsw([cmd, vec_to_str(vec), str(k)])
-    stats, hits = {}, []
-    for line in out.strip().split("\n"):
-        parts = line.split("\t")
-        if parts[0] == "#":
-            stats = {"micros": float(parts[1]), "distance_calls": int(parts[2]),
-                     "index_size": int(parts[3])}
-        elif len(parts) == 2:
-            hits.append({"id": int(parts[1]), "distance": float(parts[0])})
-    return {**stats, "hits": hits}
-
-
-def extract_pages(pdf) -> list[tuple[int, list[str]]]:
-    """(page number, words) for each page."""
-    return [(n + 1, page.get_text().split()) for n, page in enumerate(pdf)]
-
-
-def chunk_pages(pages, size=300, overlap=50) -> list[dict]:
-    """Split text into overlapping chunks of ~300 words, remembering pages."""
-    words = [(w, n) for n, ws in pages for w in ws]
-    chunks = []
-    i = 0
-    while i < len(words):
-        window = words[i:i + size]
-        text = " ".join(w for w, _ in window)
-        if len(text.strip()) >= 20:
-            chunks.append({"id": len(chunks), "text": text,
-                           "page_start": window[0][1], "page_end": window[-1][1]})
-        if i + size >= len(words):
-            break  # last window reached the end; another would be a subset of it
-        i += size - overlap
-    return chunks
-
-
-def load_doc() -> dict:
-    if not os.path.exists(CHUNKS_FILE):
-        return {}
-    with open(CHUNKS_FILE, encoding="utf-8") as f:
-        return json.load(f)
-
-
-def page_label(c: dict) -> str:
-    if c["page_start"] == c["page_end"]:
-        return f"p. {c['page_start']}"
-    return f"pp. {c['page_start']}-{c['page_end']}"
-
-
-def stream_llm(prompt: str):
-    """Yield the LLM's answer as it is generated."""
-    try:
-        r = requests.post(f"{OLLAMA_URL}/api/generate", json={
-            "model": LLM_MODEL,
-            "prompt": prompt,
-            "stream": True
-        }, stream=True, timeout=300)
-    except requests.RequestException as e:
-        yield f"[error] Can't reach Ollama at {OLLAMA_URL}: {e}"
-        return
-    for line in r.iter_lines():
-        if line:
-            data = json.loads(line)
-            if "error" in data:
-                yield f"[error] {data['error']}"
-            elif "response" in data:
-                yield data["response"]
-
-
-def llm_complete(prompt: str, as_json=False) -> str:
-    """One non-streaming LLM call, for pipeline steps like rewriting and reranking."""
-    body = {"model": LLM_MODEL, "prompt": prompt, "stream": False,
-            "options": {"temperature": 0}}
-    if as_json:
-        body["format"] = "json"
-    try:
-        r = requests.post(f"{OLLAMA_URL}/api/generate", json=body, timeout=300)
-    except requests.RequestException as e:
-        raise BackendError(f"Can't reach Ollama at {OLLAMA_URL}: {e}")
-    data = r.json()
-    if "error" in data:
-        raise BackendError(f"LLM call failed: {data['error']}")
-    return data.get("response", "").strip()
-
-
-def rewrite_query(question: str) -> str:
-    """Turn a conversational question into a keyword-rich search query."""
-    out = llm_complete(f"""Rewrite the question below as a short search query for finding the
-relevant passage in a document. Keep names, numbers and technical terms exactly.
-Add likely synonyms. Reply with the query only, on one line.
-
-Question: {question}
-Query:""")
-    line = out.splitlines()[0].strip().strip('"') if out else ""
-    return line or question
-
-
-def rerank(question: str, chunks: list[dict], ids: list[int], k: int) -> list[int]:
-    """Ask the LLM which candidates actually answer the question. Embedding
-    similarity finds related text; the LLM can judge whether it is useful."""
-    listing = "\n\n".join(f"[{i}] {' '.join(chunks[i]['text'].split()[:120])}" for i in ids)
-    out = llm_complete(f"""Below are numbered passages from a document and a question.
-Rank the passages by how useful they are for answering the question, most useful first.
-Reply as JSON: {{"ranking": [passage numbers]}}
-
-Passages:
-{listing}
-
-Question: {question}""", as_json=True)
-    try:
-        ranking = json.loads(out).get("ranking", [])
-    except (json.JSONDecodeError, AttributeError):
-        ranking = []
-    # Keep only valid candidate ids, then fill with the original order if the LLM skipped some
-    picked = []
-    for i in ranking:
-        if isinstance(i, int) and i in ids and i not in picked:
-            picked.append(i)
-    picked += [i for i in ids if i not in picked]
-    return picked[:k]
-
-
-def advanced_retrieve(question: str, q_vec: list[float], chunks: list[dict],
-                      use_rewrite: bool, use_hybrid: bool, use_rerank: bool, k: int) -> dict:
-    """Run the advanced pipeline and record every stage so the UI can show what each one changed."""
-    timings = {}
-    query = question
-    if use_rewrite:
-        t = time.perf_counter()
-        query = rewrite_query(question)
-        q_vec = embed([query], "query")[0]
-        timings["rewrite_ms"] = round((time.perf_counter() - t) * 1000)
-
-    pool = CANDIDATES if (use_rerank or use_hybrid) else k
-    t = time.perf_counter()
-    with index_lock:
-        vector = hnsw_query("search", q_vec, pool)["hits"]
-    keyword = bm25_search(chunks, query, pool) if use_hybrid else None
-    if use_hybrid:
-        fused = rrf_fuse([[h["id"] for h in vector], [h["id"] for h in keyword]], pool)
-    else:
-        fused = [{"id": h["id"], "score": 1 - h["distance"]} for h in vector]
-    timings["search_ms"] = round((time.perf_counter() - t) * 1000, 1)
-
-    ids = [h["id"] for h in fused]
-    reranked = None
-    if use_rerank:
-        t = time.perf_counter()
-        reranked = rerank(question, chunks, ids, k)
-        timings["rerank_ms"] = round((time.perf_counter() - t) * 1000)
-        final = reranked
-    else:
-        final = ids[:k]
-
-    return {"query": query, "vector": vector, "keyword": keyword,
-            "fused": fused if use_hybrid else None, "reranked": reranked,
-            "final": final, "timings": timings}
 
 
 @app.errorhandler(BackendError)
@@ -243,6 +28,8 @@ def upload():
     """Upload a PDF, extract text, chunk it, embed each chunk, build the HNSW index."""
     if "file" not in request.files:
         return jsonify({"error": "no file"}), 400
+    if evaluation.jobs.busy():
+        return jsonify({"error": "an evaluation is running on this document; wait or cancel it first"}), 409
 
     file = request.files["file"]
     try:
@@ -301,9 +88,7 @@ def retrieve():
         return jsonify({"error": "upload a PDF first"}), 400
     chunks = doc["chunks"]
 
-    t0 = time.perf_counter()
-    q_vec = embed([question], "query")[0]
-    embed_ms = (time.perf_counter() - t0) * 1000
+    q_vec, embed_ms = embed_query(question)
 
     with index_lock:
         hnsw = hnsw_query("search", q_vec, k)
@@ -350,29 +135,118 @@ def ask():
         return jsonify({"error": "no question"}), 400
 
     if mode == "plain":
-        prompt = f"""You are a helpful assistant. Answer the question.
-
-Question: {question}
-Answer:"""
+        prompt = plain_prompt(question)
     else:
         chunks = load_doc().get("chunks", [])
         ids = data.get("chunk_ids")
         if ids is None:  # no retrieval done by the caller, do it here
-            ids = [h["id"] for h in hnsw_query("search", embed([question], "query")[0], TOP_K)["hits"]]
+            with index_lock:
+                ids = [h["id"] for h in hnsw_query("search", embed_query(question)[0], TOP_K)["hits"]]
         sources = [chunks[i] for i in ids if 0 <= i < len(chunks)]
-        context = "\n\n".join(f"[{n}] ({page_label(c)}) {c['text']}"
-                              for n, c in enumerate(sources, 1))
-        prompt = f"""You are a helpful assistant. Answer the question using only the numbered sources below.
-Cite the sources you use like [1] or [2].
-If the answer is not in the sources, say "I don't know based on this document."
-
-Sources:
-{context}
-
-Question: {question}
-Answer:"""
+        prompt = rag_prompt(question, sources)
 
     return Response(stream_with_context(stream_llm(prompt)), mimetype="text/plain")
+
+
+# ---------- evaluation ----------
+
+@app.route("/eval/configs", methods=["GET"])
+def eval_configs():
+    return jsonify({"configs": evaluation.CONFIGS, "metrics": [
+        {"key": k, "label": l, "group": g, "higher_better": h} for k, l, g, h in evaluation.METRICS],
+        "reference": evaluation.REFERENCE})
+
+
+@app.route("/eval/dataset", methods=["GET"])
+def eval_dataset():
+    """The current test set, and whether it still matches the indexed document."""
+    dataset = evaluation.load_dataset()
+    doc = load_doc()
+    current = bool(dataset and doc and
+                   dataset["doc"]["fingerprint"] == evaluation.doc_fingerprint(doc))
+    return jsonify({**dataset, "current": current})
+
+
+@app.route("/eval/dataset", methods=["POST"])
+def eval_generate():
+    """Start writing a test set from the indexed PDF: {n?, seed?, workers?}."""
+    if not load_doc():
+        return jsonify({"error": "upload a PDF first"}), 400
+    data = request.get_json(silent=True) or {}
+    n = max(1, min(int(data.get("n", 25)), 200))
+    started = evaluation.jobs.start("dataset", evaluation.generate_dataset, n=n,
+                                    seed=int(data.get("seed", 7)),
+                                    workers=max(1, min(int(data.get("workers", 1)), 8)))
+    if not started:
+        return jsonify({"error": "another evaluation job is running"}), 409
+    return jsonify({"started": True})
+
+
+@app.route("/eval/dataset/<int:item_id>", methods=["DELETE"])
+def eval_delete_item(item_id):
+    """Drop a bad question from the test set."""
+    if evaluation.jobs.busy():
+        return jsonify({"error": "wait for the running job to finish"}), 409
+    dataset = evaluation.load_dataset()
+    items = [i for i in dataset.get("items", []) if i["id"] != item_id]
+    if len(items) == len(dataset.get("items", [])):
+        return jsonify({"error": "no such question"}), 404
+    dataset["items"] = items
+    evaluation.save_dataset(dataset)
+    return jsonify({"remaining": len(items)})
+
+
+@app.route("/eval/run", methods=["POST"])
+def eval_run():
+    """Start an evaluation run: {configs?, judge?, limit?, workers?}."""
+    data = request.get_json(silent=True) or {}
+    dataset = evaluation.load_dataset()
+    doc = load_doc()
+    if not dataset.get("items"):
+        return jsonify({"error": "generate a test set first"}), 400
+    if not doc or dataset["doc"]["fingerprint"] != evaluation.doc_fingerprint(doc):
+        return jsonify({"error": "the test set was made for a different document"}), 400
+    limit = data.get("limit")
+    started = evaluation.jobs.start(
+        "run", evaluation.run_evaluation, config_ids=data.get("configs"),
+        judge=bool(data.get("judge", True)), limit=int(limit) if limit else None,
+        workers=max(1, min(int(data.get("workers", 1)), 8)))
+    if not started:
+        return jsonify({"error": "another evaluation job is running"}), 409
+    return jsonify({"started": True})
+
+
+@app.route("/eval/job", methods=["GET"])
+def eval_job():
+    return jsonify(evaluation.jobs.snapshot())
+
+
+@app.route("/eval/cancel", methods=["POST"])
+def eval_cancel():
+    evaluation.jobs.stop()
+    return jsonify({"cancelling": evaluation.jobs.busy()})
+
+
+@app.route("/eval/runs", methods=["GET"])
+def eval_runs():
+    return jsonify({"runs": evaluation.list_runs()})
+
+
+@app.route("/eval/runs/<run_id>", methods=["GET"])
+def eval_run_result(run_id):
+    run = evaluation.load_run(run_id)
+    if not run:
+        return jsonify({"error": "no such run"}), 404
+    return jsonify(run)
+
+
+@app.route("/eval/runs/<run_id>/report.md", methods=["GET"])
+def eval_report(run_id):
+    run = evaluation.load_run(run_id)
+    if not run:
+        return jsonify({"error": "no such run"}), 404
+    return Response(evaluation.markdown_report(run), mimetype="text/markdown",
+                    headers={"Content-Disposition": f"attachment; filename=rag-eval-{run_id}.md"})
 
 
 @app.route("/health", methods=["GET"])
