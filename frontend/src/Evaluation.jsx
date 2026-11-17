@@ -1,30 +1,32 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { API, card, label, muted, readError } from "./ui"
 
-const ACCENT = "#ab47bc"
-const BAR = "#3987e5"
-const GOOD = "#66bb6a"
-const BAD = "#ef5350"
+const ACCENT = "var(--advanced)"
+const BAR = "var(--bar)"
+const GOOD = "var(--good)"
+const BAD = "var(--bad)"
 // Latency stages, in pipeline order (categorical slots 1-5, dark-surface steps)
 const STAGES = [
-  ["embed_ms", "embed", "#3987e5"],
-  ["rewrite_ms", "rewrite", "#d95926"],
-  ["search_ms", "search", "#199e70"],
-  ["rerank_ms", "rerank", "#c98500"],
-  ["generate_ms", "generate", "#d55181"],
+  ["embed_ms", "embed", "var(--bar)"],
+  ["plan_ms", "plan", "var(--stage-plan)"],
+  ["rewrite_ms", "rewrite", "var(--stage-rewrite)"],
+  ["search_ms", "search", "var(--stage-search)"],
+  ["rerank_ms", "rerank", "var(--stage-rerank)"],
+  ["generate_ms", "generate", "var(--stage-generate)"],
+  ["check_ms", "self-check", "var(--stage-check)"],
 ]
-const TABLE_KEYS = ["hit1", "hit5", "mrr", "ndcg5", "correctness", "faithfulness", "relevance", "f1", "refusal", "total_ms"]
+const TABLE_KEYS = ["hit1", "hit5", "mrr", "ndcg5", "correctness", "faithfulness", "relevance", "f1", "refusal", "grounded", "total_ms"]
 
 const input = {
-  background: "#0f0f0f", color: "#e0e0e0", border: "1px solid #333", borderRadius: 4,
+  background: "var(--sunk)", color: "var(--ink)", border: "1px solid var(--line)", borderRadius: 4,
   padding: "4px 6px", fontFamily: "inherit", fontSize: "0.85rem", width: 60
 }
-const button = (enabled, color = "#4fc3f7") => ({
+const button = (enabled, color = "var(--action)") => ({
   padding: "8px 16px", borderRadius: 6, border: "none", fontFamily: "inherit",
-  background: enabled ? color : "#333", color: enabled ? "#000" : "#666",
+  background: enabled ? color : "var(--line)", color: enabled ? "var(--on-action)" : "var(--muted)",
   cursor: enabled ? "pointer" : "default", fontWeight: "bold", fontSize: "0.85rem"
 })
-const th = { textAlign: "right", padding: "6px 8px", fontWeight: "normal", color: "#888", whiteSpace: "nowrap" }
+const th = { textAlign: "right", padding: "6px 8px", fontWeight: "normal", color: "var(--muted)", whiteSpace: "nowrap" }
 const td = { textAlign: "right", padding: "6px 8px", whiteSpace: "nowrap" }
 
 const fmt = (v, key) => v == null ? "–" : key === "total_ms" ? `${Math.round(v)}` : v.toFixed(2)
@@ -46,13 +48,13 @@ function TestSet({ dataset, busy, onGenerate, onDelete }) {
   const items = dataset?.items || []
   return (
     <div style={card}>
-      <p style={label}>1 · TEST SET</p>
+      <p style={label}>1. Test set</p>
       <p style={{ ...muted, margin: "0 0 12px", lineHeight: 1.6 }}>
         llama3.2 reads chunks sampled across the whole PDF and writes a question, a short reference answer and
         the exact sentence that contains it. Every chunk containing that sentence counts as the right chunk to retrieve.
       </p>
       {items.length > 0 && (
-        <p style={{ fontSize: "0.85rem", margin: "0 0 12px", color: dataset.current ? "#e0e0e0" : "#ffa726" }}>
+        <p style={{ fontSize: "0.85rem", margin: "0 0 12px", color: dataset.current ? "var(--ink)" : "var(--warn)" }}>
           {dataset.current ? "✓" : "⚠"} {items.length} questions from {dataset.doc.filename}
           <span style={muted}> · written {dataset.generated_at?.replace("T", " ")}
             {dataset.stats && ` · ${dataset.stats.attempted} chunks tried`}
@@ -77,7 +79,7 @@ function TestSet({ dataset, busy, onGenerate, onDelete }) {
           <summary style={{ cursor: "pointer", fontSize: "0.85rem" }}>Review questions (remove bad ones before running)</summary>
           <div style={{ maxHeight: 360, overflowY: "auto", marginTop: 8 }}>
             {items.map(it => (
-              <div key={it.id} style={{ borderTop: "1px solid #2a2a2a", padding: "8px 0", display: "flex", gap: 10 }}>
+              <div key={it.id} style={{ borderTop: "1px solid var(--line)", padding: "8px 0", display: "flex", gap: 10 }}>
                 <div style={{ flex: 1, minWidth: 0, fontSize: "0.82rem", lineHeight: 1.6 }}>
                   <div>Q{it.id + 1}. {it.question}</div>
                   <div style={muted}>Answer: {it.answer}</div>
@@ -87,7 +89,7 @@ function TestSet({ dataset, busy, onGenerate, onDelete }) {
                   </div>
                 </div>
                 <button title="Remove this question" disabled={busy} onClick={() => onDelete(it.id)}
-                  style={{ background: "none", border: "none", color: "#888", cursor: "pointer", fontSize: "1rem" }}>×</button>
+                  style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: "1rem" }}>×</button>
               </div>
             ))}
           </div>
@@ -105,7 +107,7 @@ function RunPanel({ meta, dataset, busy, onRun }) {
   const [workers, setWorkers] = useState(1)
   const [limit, setLimit] = useState("")
   const ready = dataset?.current && dataset.items.length > 0
-  const nq = Math.min(dataset?.items.length || 0, +limit || Infinity)
+  const nq = Math.min(dataset?.items?.length || 0, +limit || Infinity)
   const chosen = meta.configs.filter(c => picked.has(c.id))
   const rag = chosen.filter(c => c.kind !== "plain").length
   const rewrites = chosen.some(c => c.flags.rewrite) ? 1 : 0
@@ -117,18 +119,18 @@ function RunPanel({ meta, dataset, busy, onRun }) {
     setPicked(s)
   }
   const groups = [
-    ["Baselines", meta.configs.filter(c => c.kind !== "advanced")],
+    ["Baselines and agent", meta.configs.filter(c => c.kind !== "advanced")],
     ["Advanced steps (every on/off combination, for ablation)", meta.configs.filter(c => c.kind === "advanced")],
   ]
   return (
     <div style={card}>
-      <p style={label}>2 · RUN</p>
+      <p style={label}>2. Run</p>
       {groups.map(([name, cs]) => (
         <div key={name} style={{ marginBottom: 10 }}>
           <p style={{ ...muted, margin: "0 0 6px" }}>{name}</p>
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: "0.85rem" }}>
             {cs.map(c => (
-              <label key={c.id} style={{ cursor: "pointer", color: picked.has(c.id) ? "#e0e0e0" : "#666" }}>
+              <label key={c.id} style={{ cursor: "pointer", color: picked.has(c.id) ? "var(--ink)" : "var(--muted)" }}>
                 <input type="checkbox" checked={picked.has(c.id)} disabled={busy} onChange={() => toggle(c.id)}
                   style={{ marginRight: 6, accentColor: ACCENT }} />
                 {c.name}
@@ -171,20 +173,20 @@ function Progress({ job, onCancel }) {
   const pct = job.total ? job.done / job.total : 0
   const running = job.status === "running"
   return (
-    <div style={{ ...card, borderColor: job.status === "error" ? BAD : "#2a2a2a" }}>
+    <div style={{ ...card, borderColor: job.status === "error" ? BAD : "var(--line)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", marginBottom: 8, gap: 12 }}>
         <span>
           {job.kind === "dataset" ? "Writing test set" : "Evaluating"}
           {running ? ` · ${job.done} / ${job.total || "?"}` : ` · ${job.status}`}
         </span>
-        {running && <button onClick={onCancel} style={{ ...button(true, "#555"), padding: "2px 10px", color: "#e0e0e0" }}>Cancel</button>}
+        {running && <button onClick={onCancel} style={{ ...button(true, "var(--muted)"), padding: "2px 10px", color: "var(--ink)" }}>Cancel</button>}
       </div>
       {running && (
-        <div style={{ height: 6, background: "#2a2a2a", borderRadius: 3, overflow: "hidden" }}>
+        <div style={{ height: 6, background: "var(--line)", borderRadius: 3, overflow: "hidden" }}>
           <div style={{ width: `${pct * 100}%`, height: "100%", background: ACCENT, transition: "width 0.3s" }} />
         </div>
       )}
-      <p style={{ ...muted, margin: "8px 0 0", color: job.status === "error" ? BAD : "#888" }}>
+      <p style={{ ...muted, margin: "8px 0 0", color: job.status === "error" ? BAD : "var(--muted)" }}>
         {job.status === "error" ? job.error : job.message}
       </p>
     </div>
@@ -200,7 +202,7 @@ function Delta({ d, metric }) {
   const text = metric.key === "total_ms" ? `${d.mean > 0 ? "+" : ""}${Math.round(d.mean)}` : `${d.mean > 0 ? "+" : ""}${d.mean.toFixed(2)}`
   return (
     <span title={`vs basic RAG: ${text} [${fmt(d.lo, metric.key)}, ${fmt(d.hi, metric.key)}], p = ${d.p.toFixed(3)}`}
-      style={{ fontSize: "0.72rem", marginLeft: 4, color: sig ? (better ? GOOD : BAD) : "#666" }}>
+      style={{ fontSize: "0.72rem", marginLeft: 4, color: sig ? (better ? GOOD : BAD) : "var(--muted)" }}>
       {text}{sig && "*"}
     </span>
   )
@@ -219,7 +221,7 @@ function Leaderboard({ run, metrics }) {
     <div style={{ overflowX: "auto" }}>
       <table style={{ borderCollapse: "collapse", fontSize: "0.82rem", width: "100%" }}>
         <thead>
-          <tr style={{ borderBottom: "1px solid #333" }}>
+          <tr style={{ borderBottom: "1px solid var(--line)" }}>
             <th style={{ ...th, textAlign: "left" }}>Configuration</th>
             {keys.map(k => <th key={k} style={th} title={metrics[k].higher_better ? "higher is better" : "lower is better"}>
               {metrics[k].label}{metrics[k].higher_better ? " ↑" : " ↓"}</th>)}
@@ -230,7 +232,7 @@ function Leaderboard({ run, metrics }) {
           {run.configs.map(c => {
             const m = s.configs[c.id]
             return (
-              <tr key={c.id} style={{ borderBottom: "1px solid #222", background: c.id === "basic" ? "#1f1f1f" : undefined }}>
+              <tr key={c.id} style={{ borderBottom: "1px solid var(--line)", background: c.id === "basic" ? "var(--sunk)" : undefined }}>
                 <td style={{ ...td, textAlign: "left" }}>{c.name}</td>
                 {keys.map(k => (
                   <td key={k} style={{ ...td, fontWeight: m[k] && m[k].mean === best[k] ? "bold" : "normal" }}
@@ -269,11 +271,11 @@ function MetricBars({ run, metrics }) {
           {options.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
         </select>
       </div>
-      <svg viewBox={`0 0 ${W} ${rows.length * rowH + 20}`} style={{ width: "100%", fontFamily: "monospace" }}>
+      <svg viewBox={`0 0 ${W} ${rows.length * rowH + 20}`} style={{ width: "100%", fontFamily: "inherit" }}>
         {[0, 0.25, 0.5, 0.75, 1].map(t => (
           <g key={t}>
-            <line x1={x(t)} x2={x(t)} y1={0} y2={rows.length * rowH} stroke="#2a2a2a" />
-            <text x={x(t)} y={rows.length * rowH + 14} fill="#888" fontSize="10" textAnchor="middle">{t}</text>
+            <line x1={x(t)} x2={x(t)} y1={0} y2={rows.length * rowH} stroke="var(--line)" />
+            <text x={x(t)} y={rows.length * rowH + 14} fill="var(--muted)" fontSize="10" textAnchor="middle">{t}</text>
           </g>
         ))}
         {rows.map(({ c, v }, i) => {
@@ -282,14 +284,14 @@ function MetricBars({ run, metrics }) {
             <g key={c.id}>
               <title>{`${c.name}: ${v.mean.toFixed(3)} (95% CI ${v.lo.toFixed(3)} – ${v.hi.toFixed(3)}, n = ${v.n})`}</title>
               <rect x={0} y={y} width={W} height={rowH} fill="transparent" />
-              <text x={left - 8} y={y + rowH / 2 + 4} fill={c.id === "basic" ? "#e0e0e0" : "#aaa"} fontSize="11" textAnchor="end">
+              <text x={left - 8} y={y + rowH / 2 + 4} fill={c.id === "basic" ? "var(--ink)" : "var(--muted)"} fontSize="11" textAnchor="end">
                 {c.name.length > 20 ? c.name.slice(0, 19) + "…" : c.name}
               </text>
               <rect x={left} y={y + 5} width={Math.max(0, x(v.mean) - left)} height={rowH - 10} rx={3} fill={BAR} />
-              <line x1={x(v.lo)} x2={x(v.hi)} y1={y + rowH / 2} y2={y + rowH / 2} stroke="#e0e0e0" strokeWidth={1.5} />
-              <line x1={x(v.lo)} x2={x(v.lo)} y1={y + 8} y2={y + rowH - 8} stroke="#e0e0e0" strokeWidth={1.5} />
-              <line x1={x(v.hi)} x2={x(v.hi)} y1={y + 8} y2={y + rowH - 8} stroke="#e0e0e0" strokeWidth={1.5} />
-              <text x={W - 4} y={y + rowH / 2 + 4} fill="#e0e0e0" fontSize="11" textAnchor="end">{v.mean.toFixed(2)}</text>
+              <line x1={x(v.lo)} x2={x(v.hi)} y1={y + rowH / 2} y2={y + rowH / 2} stroke="var(--ink)" strokeWidth={1.5} />
+              <line x1={x(v.lo)} x2={x(v.lo)} y1={y + 8} y2={y + rowH - 8} stroke="var(--ink)" strokeWidth={1.5} />
+              <line x1={x(v.hi)} x2={x(v.hi)} y1={y + 8} y2={y + rowH - 8} stroke="var(--ink)" strokeWidth={1.5} />
+              <text x={W - 4} y={y + rowH / 2 + 4} fill="var(--ink)" fontSize="11" textAnchor="end">{v.mean.toFixed(2)}</text>
             </g>
           )
         })}
@@ -311,7 +313,7 @@ function LatencyBars({ run }) {
           <span key={k}><span style={{ display: "inline-block", width: 10, height: 10, background: color, borderRadius: 2, marginRight: 4 }} />{name}</span>
         ))}
       </div>
-      <svg viewBox={`0 0 ${W} ${rows.length * rowH}`} style={{ width: "100%", fontFamily: "monospace" }}>
+      <svg viewBox={`0 0 ${W} ${rows.length * rowH}`} style={{ width: "100%", fontFamily: "inherit" }}>
         {rows.map(({ c, l }, i) => {
           const y = i * rowH
           let acc = left
@@ -320,7 +322,7 @@ function LatencyBars({ run }) {
             <g key={c.id}>
               <title>{`${c.name}: ${STAGES.filter(([k]) => l.stages[k] > 0).map(([k, n]) => `${n} ${fmtMs(l.stages[k])}`).join(", ")} · p50 ${fmtMs(l.p50)}, p95 ${fmtMs(l.p95)}`}</title>
               <rect x={0} y={y} width={W} height={rowH} fill="transparent" />
-              <text x={left - 8} y={y + rowH / 2 + 4} fill="#aaa" fontSize="11" textAnchor="end">
+              <text x={left - 8} y={y + rowH / 2 + 4} fill="var(--muted)" fontSize="11" textAnchor="end">
                 {c.name.length > 20 ? c.name.slice(0, 19) + "…" : c.name}
               </text>
               {STAGES.map(([k, , color]) => {
@@ -330,7 +332,7 @@ function LatencyBars({ run }) {
                 acc += w
                 return r
               })}
-              <text x={W - 4} y={y + rowH / 2 + 4} fill="#e0e0e0" fontSize="11" textAnchor="end">{fmtMs(total)}</text>
+              <text x={W - 4} y={y + rowH / 2 + 4} fill="var(--ink)" fontSize="11" textAnchor="end">{fmtMs(total)}</text>
             </g>
           )
         })}
@@ -354,23 +356,23 @@ function Tradeoff({ run, metrics }) {
   return (
     <div style={{ flex: "1 1 420px", minWidth: 0 }}>
       <p style={{ ...muted, margin: "0 0 8px" }}>{metrics[key].label} vs median latency · labelled points are the best trade-offs</p>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", fontFamily: "monospace" }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", fontFamily: "inherit" }}>
         {[0, 0.5, 1].map(q => (
           <g key={q}>
-            <line x1={L} x2={W - R} y1={y(q)} y2={y(q)} stroke="#2a2a2a" />
-            <text x={L - 6} y={y(q) + 4} fill="#888" fontSize="10" textAnchor="end">{q}</text>
+            <line x1={L} x2={W - R} y1={y(q)} y2={y(q)} stroke="var(--line)" />
+            <text x={L - 6} y={y(q) + 4} fill="var(--muted)" fontSize="10" textAnchor="end">{q}</text>
           </g>
         ))}
-        <text x={L} y={H - 8} fill="#888" fontSize="10">0</text>
-        <text x={W - R} y={H - 8} fill="#888" fontSize="10" textAnchor="end">{fmtMs(tMax)}</text>
+        <text x={L} y={H - 8} fill="var(--muted)" fontSize="10">0</text>
+        <text x={W - R} y={H - 8} fill="var(--muted)" fontSize="10" textAnchor="end">{fmtMs(tMax)}</text>
         <polyline points={line.map(p => `${x(p.t)},${y(p.q)}`).join(" ")} fill="none" stroke={ACCENT} strokeWidth={2} strokeDasharray="4 3" />
         {pts.map(p => (
           <g key={p.c.id}>
             <title>{`${p.c.name}: ${metrics[key].label} ${p.q.toFixed(2)}, p50 ${fmtMs(p.t)}`}</title>
             <circle cx={x(p.t)} cy={y(p.q)} r={10} fill="transparent" />
-            <circle cx={x(p.t)} cy={y(p.q)} r={5} fill={frontier.has(p.c.id) ? ACCENT : "#666"} stroke="#1a1a1a" strokeWidth={2} />
+            <circle cx={x(p.t)} cy={y(p.q)} r={5} fill={frontier.has(p.c.id) ? ACCENT : "var(--muted)"} stroke="var(--paper)" strokeWidth={2} />
             {frontier.has(p.c.id) && (
-              <text x={x(p.t) + 8} y={y(p.q) - 8} fill="#e0e0e0" fontSize="10"
+              <text x={x(p.t) + 8} y={y(p.q) - 8} fill="var(--ink)" fontSize="10"
                 textAnchor={x(p.t) > W - 130 ? "end" : "start"}>{p.c.name}</text>
             )}
           </g>
@@ -390,14 +392,14 @@ function Effects({ run, metrics }) {
     <div style={{ overflowX: "auto" }}>
       <table style={{ borderCollapse: "collapse", fontSize: "0.82rem", width: "100%" }}>
         <thead>
-          <tr style={{ borderBottom: "1px solid #333" }}>
+          <tr style={{ borderBottom: "1px solid var(--line)" }}>
             <th style={{ ...th, textAlign: "left" }}>Turning on…</th>
             {keys.map(k => <th key={k} style={th}>{metrics[k].label}</th>)}
           </tr>
         </thead>
         <tbody>
           {steps.map(s => (
-            <tr key={s} style={{ borderBottom: "1px solid #222" }}>
+            <tr key={s} style={{ borderBottom: "1px solid var(--line)" }}>
               <td style={{ ...td, textAlign: "left" }}>{names[s]}
                 <span style={muted}> ({effects[s].pairs.length} pair{effects[s].pairs.length > 1 ? "s" : ""})</span></td>
               {keys.map(k => {
@@ -406,7 +408,7 @@ function Effects({ run, metrics }) {
                 const better = metrics[k].higher_better ? e.mean > 0 : e.mean < 0
                 const sig = e.p < 0.05 && Math.abs(e.mean) > 1e-9
                 return (
-                  <td key={k} style={{ ...td, color: sig ? (better ? GOOD : BAD) : "#aaa" }}
+                  <td key={k} style={{ ...td, color: sig ? (better ? GOOD : BAD) : "var(--muted)" }}
                     title={`95% CI ${fmt(e.lo, k)} – ${fmt(e.hi, k)}, p = ${e.p.toFixed(3)}`}>
                     {e.mean > 0 ? "+" : ""}{fmt(e.mean, k)}{sig && "*"}
                   </td>
@@ -446,7 +448,7 @@ function Explorer({ run }) {
         <span style={muted}>{item.evidence}</span>
       </p>
       {recs.map(({ c, r }) => (
-        <details key={c.id} style={{ borderTop: "1px solid #2a2a2a", padding: "8px 0" }}>
+        <details key={c.id} style={{ borderTop: "1px solid var(--line)", padding: "8px 0" }}>
           <summary style={{ cursor: "pointer", fontSize: "0.82rem" }}>
             {c.name}
             {r.retrieved && (
@@ -483,7 +485,7 @@ function Results({ runs, run, onPick, metrics }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div style={card}>
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: run ? 12 : 0 }}>
-          <p style={{ ...label, margin: 0 }}>3 · RESULTS</p>
+          <p style={{ ...label, margin: 0 }}>3. Results</p>
           <select value={run?.id || ""} onChange={e => onPick(e.target.value)} style={{ ...input, width: "auto" }}>
             {runs.map(r => (
               <option key={r.id} value={r.id}>
@@ -492,8 +494,8 @@ function Results({ runs, run, onPick, metrics }) {
             ))}
           </select>
           {run && <>
-            <button onClick={download} style={{ ...button(true, "#333"), color: "#e0e0e0", padding: "4px 10px" }}>JSON</button>
-            <a href={`${API}/eval/runs/${run.id}/report.md`} style={{ ...button(true, "#333"), color: "#e0e0e0", padding: "4px 10px", textDecoration: "none" }}>Markdown report</a>
+            <button onClick={download} style={{ ...button(true, "var(--line)"), color: "var(--ink)", padding: "4px 10px" }}>JSON</button>
+            <a href={`${API}/eval/runs/${run.id}/report.md`} style={{ ...button(true, "var(--line)"), color: "var(--ink)", padding: "4px 10px", textDecoration: "none" }}>Markdown report</a>
           </>}
         </div>
         {run && (
@@ -506,7 +508,7 @@ function Results({ runs, run, onPick, metrics }) {
       </div>
       {run && <>
         <div style={card}>
-          <p style={label}>SCORES</p>
+          <p style={label}>Scores</p>
           <Leaderboard run={run} metrics={metrics} />
         </div>
         <div style={{ ...card, display: "flex", gap: 24, flexWrap: "wrap" }}>
@@ -516,12 +518,12 @@ function Results({ runs, run, onPick, metrics }) {
         <div style={{ ...card, display: "flex", gap: 24, flexWrap: "wrap" }}>
           <Tradeoff run={run} metrics={metrics} />
           <div style={{ flex: "1 1 420px", minWidth: 0 }}>
-            <p style={{ ...label, color: ACCENT }}>WHAT EACH ADVANCED STEP ADDS</p>
+            <p style={{ ...label, color: ACCENT }}>What each advanced step adds</p>
             <Effects run={run} metrics={metrics} />
           </div>
         </div>
         <div style={card}>
-          <p style={label}>QUESTION BY QUESTION</p>
+          <p style={label}>Question by question</p>
           <Explorer key={run.id} run={run} />
         </div>
       </>}

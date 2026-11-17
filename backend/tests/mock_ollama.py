@@ -64,6 +64,28 @@ def field(prompt, name):
 
 
 def generate(prompt):
+    if prompt.startswith("Route a user's question"):
+        q = field(prompt, "Question").lower()
+        route = "summary" if "summar" in q else "research" if " and " in q or "compare" in q else "lookup"
+        return json.dumps({"route": route, "reason": "keyword rules"})
+    if prompt.startswith("You are a research agent"):
+        q = field(prompt, "Question")
+        steps = int(field(prompt, "Steps taken").split()[0] or 0)
+        if steps == 0:
+            return json.dumps({"thought": "nothing yet", "action": "search", "input": q})
+        if steps == 1:
+            return json.dumps({"thought": "exact terms", "action": "keyword", "input": q})
+        return json.dumps({"thought": "enough", "action": "answer", "input": ""})
+    if prompt.startswith("Check each claim"):
+        passages = prompt.split("Passages:", 1)[1].split("Claims:", 1)[0]
+        claims = re.findall(r"^(\d+)\. (.*)$", prompt.split("Claims:", 1)[1], re.M)
+        return json.dumps({"claims": [{"n": int(n), "supported": overlap(c, passages) > 0.6}
+                                      for n, c in claims]})
+    if prompt.startswith("Summarize the passages"):
+        text = prompt.split("Passages:", 1)[1]
+        return " ".join((sentences(text) or [text.strip()])[:2])
+    if prompt.startswith("Combine these partial summaries"):
+        return " ".join(re.findall(r"^- (.*)$", prompt, re.M))
     if "writing a test set" in prompt:
         passage = prompt.split('"""')[1]
         sents = sentences(passage) or [passage]

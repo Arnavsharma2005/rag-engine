@@ -50,13 +50,16 @@ def test_full_evaluation(client):
     runs = client.get("/eval/runs").get_json()["runs"]
     run = client.get(f"/eval/runs/{runs[0]['id']}").get_json()
 
-    assert len(run["configs"]) == 10 and len(run["items"]) == 7
-    assert len(run["records"]) == 70
+    assert len(run["configs"]) == 11 and len(run["items"]) == 7
+    assert len(run["records"]) == 77
     s = run["summary"]
     basic, exact = s["configs"]["basic"], s["configs"]["exact"]
     # The mock's hashed embeddings make retrieval easy: exact search finds the evidence
     assert exact["hit5"]["mean"] >= 0.8
     assert basic["hit5"]["mean"] >= 0.5
+    agent_cfg = run["summary"]["configs"]["agent"]
+    assert agent_cfg["hit5"]["mean"] >= basic["hit5"]["mean"] - 0.15
+    assert "grounded" in agent_cfg
     assert "hit5" not in s["configs"]["no_rag"]
     assert s["configs"]["no_rag"]["refusal"]["mean"] == 1.0
     assert s["configs"]["basic"]["correctness"]["mean"] > s["configs"]["no_rag"]["correctness"]["mean"]

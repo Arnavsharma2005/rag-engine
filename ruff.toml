@@ -1,0 +1,7 @@
+line-length = 120
+target-version = "py310"
+
+[lint]
+select = ["E", "F", "W", "B"]
+# E501: prompts are long string literals. E741: `l` for latency rows is fine here.
+ignore = ["E501", "E741", "B905"]

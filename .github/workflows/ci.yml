@@ -1,0 +1,191 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * 1"  # weekly real-model eval, if a model API key is configured
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install ruff==0.14.0 && ruff check backend
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: frontend/package-lock.json }
+      - working-directory: frontend
+        run: npm ci && npm run lint && npm run build
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: backend/requirements*.txt }
+      - name: Build the HNSW engine
+        run: g++ -O2 -std=c++17 -o hnsw/hnsw hnsw/hnsw.cpp
+      - run: pip install -r backend/requirements-dev.txt
+      - name: Unit and end-to-end tests (mock model)
+        working-directory: backend
+        run: python -m pytest -q tests
+
+  eval-gate:
+    # Runs every pipeline (no RAG, basic, advanced, agent) on a fixed document and
+    # fails the build if a score drops below backend/eval_thresholds.json.
+    # The mock model proves the pipeline works end to end, not real answer quality.
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: backend/requirements*.txt }
+      - run: g++ -O2 -std=c++17 -o hnsw/hnsw hnsw/hnsw.cpp
+      - run: pip install -r backend/requirements-dev.txt
+      - name: Quality gate
+        working-directory: backend
+        run: python eval_gate.py --mock --report eval-report.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: eval-report-mock, path: backend/eval-report.md }
+
+  eval-real:
+    # Optional: the same gate against a real model through an OpenAI-compatible API.
+    # Add the LLM_API_KEY secret, and the LLM_BASE_URL / LLM_MODEL / EMBED_MODEL
+    # repository variables, to turn it on. Runs on main and weekly, not on PRs.
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+    steps:
+      - if: env.LLM_API_KEY == ''
+        run: echo "LLM_API_KEY is not set; skipping the real-model eval."
+      - if: env.LLM_API_KEY != ''
+        uses: actions/checkout@v4
+      - if: env.LLM_API_KEY != ''
+        uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - if: env.LLM_API_KEY != ''
+        run: |
+          g++ -O2 -std=c++17 -o hnsw/hnsw hnsw/hnsw.cpp
+          pip install -r backend/requirements-dev.txt
+      - if: env.LLM_API_KEY != ''
+        name: Quality gate (real model)
+        working-directory: backend
+        env:
+          LLM_PROVIDER: openai
+          OPENAI_API_KEY: ${{ secrets.LLM_API_KEY }}
+          OPENAI_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          EMBED_MODEL: ${{ vars.EMBED_MODEL }}
+        run: python eval_gate.py --n 15 --report eval-report.md
+      - if: always() && env.LLM_API_KEY != ''
+        uses: actions/upload-artifact@v4
+        with: { name: eval-report-real, path: backend/eval-report.md }
+
+  image:
+    # Builds the Docker image on every PR; on main, publishes it to GitHub Container Registry.
+    needs: [lint, eval-gate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ github.event_name == 'push' }}
+          tags: |
+            ${{ steps.name.outputs.image }}:latest
+            ${{ steps.name.outputs.image }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build the Hugging Face Space image (without model weights)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/hf/Dockerfile
+          build-args: PULL_MODELS=0
+          load: true
+          tags: rag-engine-space:ci
+          cache-from: type=gha,scope=space
+          cache-to: type=gha,scope=space,mode=max
+      - name: Smoke-test the Space image
+        run: |
+          docker run --rm rag-engine-space:ci ollama --version
+          docker run --rm rag-engine-space:ci python -c "import app; print('app imports')"
+
+  deploy-space:
+    # Pushes the app to a Hugging Face Space, which rebuilds with Ollama and the models inside.
+    # Needs the HF_TOKEN secret (a write token) and the HF_SPACE variable (owner/name).
+    needs: image
+    if: github.event_name == 'push' && vars.HF_SPACE != ''
+    runs-on: ubuntu-latest
+    environment:
+      name: huggingface
+      url: https://huggingface.co/spaces/${{ vars.HF_SPACE }}
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Deploy
+        run: |
+          if [ -z "$HF_TOKEN" ]; then echo "::error::Add the HF_TOKEN secret to deploy"; exit 1; fi
+          pip install huggingface_hub==2.4.0
+          python deploy/hf/deploy.py "${{ vars.HF_SPACE }}" \
+            --cors "https://${GITHUB_REPOSITORY_OWNER,,}.github.io" \
+            --message "Deploy ${GITHUB_SHA::7} from GitHub Actions"
+
+  deploy-pages:
+    # Publishes the UI to GitHub Pages, pointed at the Space's API.
+    # Turn on Pages with "GitHub Actions" as the source first (Settings > Pages).
+    needs: deploy-space
+    if: github.event_name == 'push' && vars.HF_SPACE != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: frontend/package-lock.json }
+      - name: Build the UI against the Space
+        working-directory: frontend
+        run: |
+          space="${{ vars.HF_SPACE }}"
+          host=$(echo "${space/\//-}" | tr '[:upper:]' '[:lower:]' | tr '._' '--')
+          npm ci
+          VITE_API_URL="https://${host}.hf.space" VITE_BASE="/${GITHUB_REPOSITORY#*/}/" npm run build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: frontend/dist }
+      - id: deploy
+        uses: actions/deploy-pages@v4

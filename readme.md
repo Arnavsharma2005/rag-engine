@@ -9,12 +9,13 @@ Built with a custom HNSW vector index in C++, Ollama for local LLM inference, Fl
 
 ## Contents
 
-- [What it does](#how-rag-works-here)
+- [What it does](#how-rag-works-here), [agentic RAG](#agentic-rag)
 - [Architecture](#architecture)
 - [Data flow](#data-flow): [indexing](#1-indexing-a-pdf), [asking](#2-asking-a-question-compare), [advanced pipeline](#3-advanced-retrieval-pipeline)
 - [Evaluation](#evaluation): measure what each step is worth
 - [How HNSW search works](#how-hnsw-search-works)
 - [Data model](#data-model) and [API](#api)
+- [CI/CD and deployment](#cicd-and-deployment)
 - [Setup](#setup)
 
 ---
@@ -42,6 +43,41 @@ Click **Compare** and the page shows:
   distance computations, and how many of HNSW's results match the exact top 5
 
 Ask questions only your document can answer (names, numbers, definitions) to see the difference most clearly.
+
+---
+
+## Agentic RAG
+
+The fourth answer comes from an agent that decides how to answer instead of running one fixed pipeline
+(`backend/agent.py`, `POST /agent`). Every decision streams to the **Agent trace** panel as it happens.
+
+1. **Route.** The model sorts the question into one of four routes:
+   - `direct`: small talk or general knowledge, answered without retrieval
+   - `lookup`: one fact, answered from a single hybrid search (the fast path)
+   - `research`: several facts, comparisons, or reasoning across sections, handled by the tool loop
+   - `summary`: an overview, done as a map-reduce over chunks spread through the document
+   If the model's reply can't be parsed, simple keyword rules pick the route.
+2. **Tool loop** (`research`). The agent picks one tool per step until it has evidence for every part of the
+   question, or until it hits 4 steps:
+   - `search`: hybrid HNSW and BM25 search
+   - `keyword`: BM25 search for exact names and numbers
+   - `read_neighbors`: reads the chunks before and after a hit
+   - `read_page`: reads every chunk on a page
+   Evidence from all the calls is merged by reciprocal rank fusion, and the best 6 chunks become the sources.
+3. **Self-check.** The answer is split into claims, and each claim is checked against the sources it cites.
+   Citations to sources that don't exist are flagged too.
+4. **Correction.** When a claim isn't supported, the agent searches for that claim, rewrites the answer once, and
+   checks it again. If a `lookup` answer refuses or fails the check, the question moves up to `research`.
+
+The agent is also a configuration in the evaluation harness (**Agentic RAG**), so it is scored on the same
+test set as the fixed pipelines. It adds two latency stages (`plan` and `self-check`) and a
+**Passed self-check** metric.
+
+### Model providers
+
+`LLM_PROVIDER=ollama` (the default) keeps everything local. `LLM_PROVIDER=openai` switches to any API
+that speaks the OpenAI format (OpenAI, Groq, Together, vLLM, LM Studio), configured with `OPENAI_BASE_URL`,
+`OPENAI_API_KEY`, `LLM_MODEL` and `EMBED_MODEL`. Changing the embedding model means re-uploading the PDF.
 
 ---
 
@@ -307,6 +343,7 @@ classDiagram
 | `POST` | `/upload` | multipart `file` (PDF, max 50 MB) | `{filename, pages, chunks, embed_seconds, index_seconds}` |
 | `GET` | `/status` | | `{indexed, filename, pages, chunks}` for the indexed document |
 | `POST` | `/retrieve` | `{question, k?, advanced?: {rewrite, hybrid, rerank}}` | HNSW and exact hits with pages and scores, `recall`, timings, and every advanced stage |
+| `POST` | `/agent` | `{question, max_steps?, self_check?}` | Newline-delimited JSON events: `route`, `tool`, `map`, `escalate`, `correct`, `check`, then `answer` with citations, check result and timings |
 | `POST` | `/ask` | `{question, mode: "plain" \| "rag", chunk_ids?}` | Streamed plain text answer |
 | `GET` | `/eval/configs` | | Configurations and metrics the harness knows |
 | `GET` / `POST` | `/eval/dataset` | `{n?, seed?, workers?}` | The test set; POST starts writing a new one |
@@ -318,6 +355,59 @@ classDiagram
 | `GET` | `/health` | | `{status: "ok"}` |
 
 ---
+
+---
+
+## CI/CD and deployment
+
+`.github/workflows/ci.yml` runs on every pull request and every push to `main`:
+
+| Job | What it does |
+|---|---|
+| `lint` | `ruff check backend`, then `eslint` and a production build of the frontend |
+| `test` | Compiles the HNSW engine and runs `pytest` against the mock model |
+| `eval-gate` | `backend/eval_gate.py --mock` indexes a fixed test PDF, writes a test set, and runs no RAG, basic, advanced and agentic RAG. The build fails if any score drops below `backend/eval_thresholds.json`. The report shows up in the job summary and as an artifact |
+| `eval-real` | The same gate against a real model through an OpenAI-compatible API. Runs on `main` and weekly once you add the `LLM_API_KEY` secret and the `LLM_BASE_URL`, `LLM_MODEL` and `EMBED_MODEL` variables |
+| `image` | Builds the Docker image on every PR. On `main` it publishes `ghcr.io/arnavsharma2005/rag-engine` |
+
+The mock gate proves every pipeline runs end to end. It can't measure answer quality, which is what
+`eval-real`, or a local run of the Evaluate tab, is for.
+
+### Run the image
+
+The image bundles the HNSW engine, the API and the built UI, all on port 7860:
+
+```bash
+docker compose up            # app + Ollama, pulls llama3.2 and nomic-embed-text on first start
+# or, with a hosted model:
+docker run -p 7860:7860 -e LLM_PROVIDER=openai -e OPENAI_API_KEY=... \
+  -e LLM_MODEL=gpt-4o-mini -e EMBED_MODEL=text-embedding-3-small ghcr.io/arnavsharma2005/rag-engine
+```
+
+`CORS_ORIGINS` (comma-separated) allows a frontend hosted on another domain.
+
+### Free public hosting: Hugging Face Space + GitHub Pages
+
+On every merge to `main`, after the checks pass, two more jobs run:
+
+| Job | What it does |
+|---|---|
+| `deploy-space` | `deploy/hf/deploy.py` pushes the app to a Hugging Face Space. The Space builds `deploy/hf/Dockerfile`, which runs Ollama inside the container with `llama3.2:1b` and `nomic-embed-text` baked in, so it needs no API keys |
+| `deploy-pages` | Builds the UI pointed at the Space's API and publishes it to GitHub Pages |
+
+One-time setup:
+
+1. Create a Hugging Face account and a **write** access token (Settings > Access Tokens).
+2. In the GitHub repo, under Settings > Secrets and variables > Actions:
+   add the secret `HF_TOKEN`, and the variable `HF_SPACE` set to `<your-hf-username>/rag-engine`.
+3. Under Settings > Pages, set the source to **GitHub Actions**.
+
+Both jobs are skipped until `HF_SPACE` is set. The Space is created on the first deploy. The app is then
+live at `https://huggingface.co/spaces/<HF_SPACE>` and at `https://<github-username>.github.io/rag-engine/`.
+
+Limits of the free tier: the 1B model on 2 CPUs takes a few seconds per answer and is weaker than
+`llama3.2`; the Space sleeps after 48 hours without visitors; the indexed PDF is lost on restart; and all
+visitors share one index, so don't upload private documents to a public Space.
 
 ---
 
@@ -349,7 +439,8 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Optional environment variables: `OLLAMA_URL`, `EMBED_MODEL`, `LLM_MODEL`, `JUDGE_MODEL` (evaluation grader,
+Optional environment variables: `LLM_PROVIDER` (`ollama` or `openai`), `OLLAMA_URL`, `OPENAI_BASE_URL`,
+`OPENAI_API_KEY`, `EMBED_MODEL`, `LLM_MODEL`, `JUDGE_MODEL` (evaluation grader,
 defaults to `LLM_MODEL`), `HNSW_EXE`, `FLASK_DEBUG=1`.
 The frontend reads `VITE_API_URL` (default `http://127.0.0.1:5000`).
 
